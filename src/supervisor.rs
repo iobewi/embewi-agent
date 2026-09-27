@@ -8,7 +8,7 @@ use embassy_net::Stack;
 use esp_hal::peripherals::LPWR;
 use log::warn;
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 use espbewi_flash::SharedFlash;
 
 pub struct ApplicationSupervisor {
