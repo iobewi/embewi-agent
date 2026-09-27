@@ -7,7 +7,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use config_space_manager::ConfigManager;
-use config_space_manager_esp_nvs::{NvsConfigBackend, NvsPartition};
+use espbewi_config_space::{NvsConfigBackend, NvsPartition};
 use embassy_executor::Spawner;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
