@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 use config_space_manager::{Budget, ConfigSpace};
 use embassy_net::tcp::TcpSocket;
-use esp_hal_mbedtls::mbedtls_rs::{Session, SessionConfig, SessionError};
+use espbewi_tls::mbedtls_rs::{Session, SessionConfig, SessionError};
 use log::warn;
 
 use config_space_manager_esp_nvs::NvsConfigBackend;
@@ -26,8 +26,8 @@ pub const CONFIG_BUDGET: Budget =
     Budget::new(HEADER_LEN + MAX_CA_LEN + MAX_CERT_LEN + MAX_KEY_LEN);
 
 pub type TlsConfigSpace = ConfigSpace<NvsConfigBackend>;
-pub type TlsReferenceStatic = esp_hal_mbedtls::TlsReferenceStatic;
-pub use esp_hal_mbedtls::embassy::PicoserveTlsSocket as TlsSocket;
+pub type TlsReferenceStatic = espbewi_tls::TlsReferenceStatic;
+pub use espbewi_tls::embassy::PicoserveTlsSocket as TlsSocket;
 
 #[derive(Clone, Default)]
 struct TlsConfig {
@@ -149,8 +149,8 @@ pub async fn ensure_server_identity(
             if config.cert_pem.is_empty() || config.key_pem.is_empty() {
                 return Err(IdentityBootstrapError::Corrupt);
             }
-            if esp_hal_mbedtls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_err()
-                || esp_hal_mbedtls::server_config_from_pem(&config.cert_pem, &config.key_pem)
+            if espbewi_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_err()
+                || espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
                     .is_err()
             {
                 return Err(IdentityBootstrapError::Invalid);
@@ -162,7 +162,7 @@ pub async fn ensure_server_identity(
         Err(LoadError::Corrupt) => return Err(IdentityBootstrapError::Corrupt),
     }
 
-    let generated = esp_hal_mbedtls::generate_self_signed_identity(common_name).map_err(|e| {
+    let generated = espbewi_tls::generate_self_signed_identity(common_name).map_err(|e| {
         // The variant only says "generation"; the MbedTLS/PSA status is what
         // tells a missing RNG from a certificate-encoding failure.
         warn!("tls: identity generation failed: {e:?}");
@@ -171,8 +171,8 @@ pub async fn ensure_server_identity(
     if generated.cert_pem.len() > MAX_CERT_LEN || generated.key_pem.len() > MAX_KEY_LEN {
         return Err(IdentityBootstrapError::Generation);
     }
-    if esp_hal_mbedtls::validate_cert_key_pair(&generated.cert_pem, &generated.key_pem).is_err()
-        || esp_hal_mbedtls::server_config_from_pem(&generated.cert_pem, &generated.key_pem).is_err()
+    if espbewi_tls::validate_cert_key_pair(&generated.cert_pem, &generated.key_pem).is_err()
+        || espbewi_tls::server_config_from_pem(&generated.cert_pem, &generated.key_pem).is_err()
     {
         return Err(IdentityBootstrapError::Invalid);
     }
@@ -194,12 +194,12 @@ pub async fn ensure_server_identity(
         Ok(Some(stored))
             if !stored.cert_pem.is_empty()
                 && !stored.key_pem.is_empty()
-                && esp_hal_mbedtls::validate_cert_key_pair(
+                && espbewi_tls::validate_cert_key_pair(
                     &stored.cert_pem,
                     &stored.key_pem,
                 )
                 .is_ok()
-                && esp_hal_mbedtls::server_config_from_pem(
+                && espbewi_tls::server_config_from_pem(
                     &stored.cert_pem,
                     &stored.key_pem,
                 )
@@ -217,8 +217,8 @@ pub async fn ensure_server_identity(
 pub async fn server_identity_valid(space: &TlsConfigSpace) -> bool {
     match load_existing(space).await {
         Ok(Some(config)) if !config.cert_pem.is_empty() && !config.key_pem.is_empty() => {
-            esp_hal_mbedtls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_ok()
-                && esp_hal_mbedtls::server_config_from_pem(&config.cert_pem, &config.key_pem)
+            espbewi_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_ok()
+                && espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
                     .is_ok()
         }
         _ => false,
@@ -229,7 +229,7 @@ pub async fn server_identity_valid(space: &TlsConfigSpace) -> bool {
 /// clock. Before SNTP converges, the callback returns `None`, so certificate
 /// date validation fails closed.
 pub fn init() -> TlsReferenceStatic {
-    esp_hal_mbedtls::init(crate::time::now)
+    espbewi_tls::init(crate::time::now)
 }
 
 pub enum SaveCertError {
@@ -245,16 +245,16 @@ pub async fn save_cert(
     cert_pem: &str,
     key_pem: &str,
 ) -> Result<(), SaveCertError> {
-    match esp_hal_mbedtls::validate_cert_key_pair(cert_pem, key_pem) {
+    match espbewi_tls::validate_cert_key_pair(cert_pem, key_pem) {
         Ok(()) => {}
-        Err(esp_hal_mbedtls::PairError::Mismatch) => return Err(SaveCertError::Mismatch),
+        Err(espbewi_tls::PairError::Mismatch) => return Err(SaveCertError::Mismatch),
         Err(
-            esp_hal_mbedtls::PairError::InvalidCertificate
-            | esp_hal_mbedtls::PairError::InvalidPrivateKey,
+            espbewi_tls::PairError::InvalidCertificate
+            | espbewi_tls::PairError::InvalidPrivateKey,
         ) => return Err(SaveCertError::Invalid),
     }
 
-    if esp_hal_mbedtls::server_config_from_pem(cert_pem, key_pem).is_err() {
+    if espbewi_tls::server_config_from_pem(cert_pem, key_pem).is_err() {
         return Err(SaveCertError::Invalid);
     }
 
@@ -277,13 +277,13 @@ pub async fn server_config(space: &TlsConfigSpace) -> Option<SessionConfig<'stat
     if config.cert_pem.is_empty() || config.key_pem.is_empty() {
         return None;
     }
-    esp_hal_mbedtls::server_config_from_pem(&config.cert_pem, &config.key_pem).ok()
+    espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem).ok()
 }
 
 /// Validates and atomically replaces the CA trusted by outbound TLS
 /// connections while preserving the current server certificate/key.
 pub async fn save_ca(space: &TlsConfigSpace, ca_pem: &str) -> Result<(), SaveCertError> {
-    if !esp_hal_mbedtls::validate_ca_pem(ca_pem) {
+    if !espbewi_tls::validate_ca_pem(ca_pem) {
         return Err(SaveCertError::Invalid);
     }
 
@@ -338,7 +338,7 @@ pub async fn connect_client<'h, 'buf>(
         return Err(ClientTlsError::NoCa);
     }
 
-    esp_hal_mbedtls::embassy::connect_client(
+    espbewi_tls::embassy::connect_client(
         tls,
         stack,
         rx_buffer,
@@ -349,10 +349,10 @@ pub async fn connect_client<'h, 'buf>(
     )
     .await
     .map_err(|e| match e {
-        esp_hal_mbedtls::embassy::ClientConnectError::BadCa => ClientTlsError::BadCa,
-        esp_hal_mbedtls::embassy::ClientConnectError::Dns => ClientTlsError::Dns,
-        esp_hal_mbedtls::embassy::ClientConnectError::Tcp(e) => ClientTlsError::Tcp(e),
-        esp_hal_mbedtls::embassy::ClientConnectError::Handshake(e) => {
+        espbewi_tls::embassy::ClientConnectError::BadCa => ClientTlsError::BadCa,
+        espbewi_tls::embassy::ClientConnectError::Dns => ClientTlsError::Dns,
+        espbewi_tls::embassy::ClientConnectError::Tcp(e) => ClientTlsError::Tcp(e),
+        espbewi_tls::embassy::ClientConnectError::Handshake(e) => {
             ClientTlsError::Handshake(e)
         }
     })
