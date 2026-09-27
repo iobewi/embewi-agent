@@ -20,7 +20,7 @@ use embewi_agent_esp::hardware;
 use embewi_agent_esp::status;
 use embewi_agent_esp::tls;
 use config_space_manager::ConfigManager;
-use config_space_manager_esp_nvs::{NvsConfigBackend, NvsPartition};
+use espbewi_config_space::{NvsConfigBackend, NvsPartition};
 use embewi_agent_esp::wifi::{self, WifiManager};
 use embewi_agent_esp::runtime_config;
 
