@@ -91,7 +91,7 @@ const SELFCHECK_DEADLINE: Duration = Duration::from_secs(15);
 /// run -- a hang before the self-check's own `select` is ever reached, or
 /// one inside the embassy executor itself, neither of which a purely
 /// software deadline (which depends on that same executor) can catch.
-const WATCHDOG_DEADLINE: esp_hal::time::Duration = esp_hal::time::Duration::from_secs(20);
+const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 
 /// Keep the partition-table scratch area off the Embassy task stack.
@@ -1089,31 +1089,22 @@ async fn mark_invalid_and_reboot(flash: &'static SharedFlash) -> ! {
 // it running until the image is durably confirmed
 // ([`mark_valid`]/[`disable_boot_watchdog`]).
 //
-// TIMG0's own watchdog (not RTC_CNTL's, which `http::run`'s
-// `reboot_after_delay` already threads `LPWR` through for its own
-// unrelated `/reboot`/`/ota/activate` use). `Wdt::new()` needs no peripheral
-// value -- like `esp_hal::init()`'s own internal disabling code, it derives
-// register access purely from the `TIMG0` type parameter -- so this needs
-// no plumbing through `main`'s peripherals at all.
-fn boot_watchdog() -> esp_hal::timer::timg::Wdt<esp_hal::peripherals::TIMG0<'static>> {
-    esp_hal::timer::timg::Wdt::new()
-}
+// espbewi-watchdog owns the TIMG0 register access. The application chooses
+// the deadline and the points at which its boot protection ends.
 
 /// Arms the anti-freeze watchdog. Call exactly once, right after
 /// `TimerGroup::new(peripherals.TIMG0)` (see the module section comment
 /// above for why not any earlier).
 pub fn arm_boot_watchdog() {
-    let mut wdt = boot_watchdog();
-    wdt.set_timeout(esp_hal::timer::timg::MwdtStage::Stage0, WATCHDOG_DEADLINE);
-    wdt.enable();
+    espbewi_watchdog::arm_ms(WATCHDOG_DEADLINE_MS);
 }
 
 fn feed_boot_watchdog() {
-    boot_watchdog().feed();
+    espbewi_watchdog::feed();
 }
 
 fn disable_boot_watchdog() {
-    boot_watchdog().disable();
+    espbewi_watchdog::disable();
 }
 
 /// Runs the existing bounded FiBeWI/ESP confirmation gate after the caller
