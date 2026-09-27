@@ -6,7 +6,7 @@
 use config_space_manager::{Budget, ConfigSpace};
 use log::warn;
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"APC1";
 pub const DEFAULT_PORT: u16 = 8080;
