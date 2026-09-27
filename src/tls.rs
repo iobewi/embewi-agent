@@ -13,7 +13,7 @@ use embassy_net::tcp::TcpSocket;
 use espbewi_tls::mbedtls_rs::{Session, SessionConfig, SessionError};
 use log::warn;
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"TLS1";
 const HEADER_LEN: usize = 10;
