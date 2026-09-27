@@ -13,7 +13,7 @@ use config_space_manager::{Budget, ConfigSpace};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"RCF1";
 const HEADER_LEN: usize = 6;
