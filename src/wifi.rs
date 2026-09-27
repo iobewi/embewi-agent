@@ -15,7 +15,7 @@ use esp_hal::peripherals::WIFI;
 use log::{info, warn};
 use static_cell::StaticCell;
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 
 pub use espbewi_wifi::Network;
 
