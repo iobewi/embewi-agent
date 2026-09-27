@@ -141,8 +141,8 @@ httparse = { version = "1", default-features = false }
 embassy-futures = "0.1"
 sha2 = { version = "0.10", default-features = false }
 # Generic isolated configuration spaces and their ESP/NVS backend.
-config-space-manager = { git = "https://github.com/iobewi/config-space-manager", rev = "fc50b2ffef10d033d1169b80ab8358e780c67772" }
-config-space-manager-esp-nvs = { git = "https://github.com/iobewi/config-space-manager", rev = "fc50b2ffef10d033d1169b80ab8358e780c67772", package = "config-space-manager-esp-nvs", features = ["esp32s3"] }
+config-space-manager = { git = "https://github.com/iobewi/config-space-manager", rev = "759c544f229be6cd7ef8e31c612c63063ef4596f" }
+config-space-manager-esp-nvs = { git = "https://github.com/iobewi/config-space-manager", rev = "759c544f229be6cd7ef8e31c612c63063ef4596f", package = "config-space-manager-esp-nvs", features = ["esp32s3"] }
 # ESP HAL + MbedTLS integration extracted from this firmware. Owns the
 # hardware RNG adapter, time hooks, PEM validation/config construction,
 # Embassy client handshake and picoserve TLS socket. Application NVS/SNTP

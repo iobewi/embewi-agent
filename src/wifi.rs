@@ -1,6 +1,6 @@
 //! Wi-Fi connector integration.
 //!
-//! Radio/network mechanics live in esp-wifi-manager. Persistent configuration
+//! Radio/network mechanics live in espbewi-wifi. Persistent configuration
 //! is owned by this component through one isolated config-space-manager
 //! capability; embewi-agent no longer reads or writes Wi-Fi credentials on
 //! the normal path.

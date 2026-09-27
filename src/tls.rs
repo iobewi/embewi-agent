@@ -1,6 +1,6 @@
 //! Embewi TLS policy and persistent configuration.
 //!
-//! Reusable ESP/MbedTLS mechanics live in `esp-hal-mbedtls`. This module
+//! Reusable ESP/MbedTLS mechanics live in `espbewi-tls`. This module
 //! owns only the Embewi TLS configuration schema and policy. Persistence is
 //! one opaque ConfigSpace value: CA + server certificate + private key are
 //! replaced atomically by config-space-manager's backend.

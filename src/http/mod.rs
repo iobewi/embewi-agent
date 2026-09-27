@@ -17,7 +17,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_time::{Duration, Timer, with_timeout};
 use esp_hal::peripherals::LPWR;
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
-use esp_hal_mbedtls::mbedtls_rs::SessionError;
+use espbewi_tls::mbedtls_rs::SessionError;
 use log::{debug, warn};
 use picoserve::io::Socket;
 use picoserve::response::{ContentBody, ContentHeaders, Response, StatusCode};
@@ -216,7 +216,7 @@ pub(super) async fn serve(
         socket.set_timeout(Some(Duration::from_secs(45)));
 
         let mut session =
-            match esp_hal_mbedtls::mbedtls_rs::Session::new(tls, socket, &tls_server_config) {
+            match espbewi_tls::mbedtls_rs::Session::new(tls, socket, &tls_server_config) {
                 Ok(session) => session,
                 Err(e) => {
                     warn!("HTTPS: session setup failed: {e}");

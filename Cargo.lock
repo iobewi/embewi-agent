@@ -343,16 +343,16 @@ checksum = "bed69047ed42e52c7e38d6421eeb8ceefb4f2a2b52eed59137f7bad7908f6800"
 [[package]]
 name = "config-space-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/config-space-manager?rev=fc50b2ffef10d033d1169b80ab8358e780c67772#fc50b2ffef10d033d1169b80ab8358e780c67772"
+source = "git+https://github.com/iobewi/config-space-manager?rev=759c544f229be6cd7ef8e31c612c63063ef4596f#759c544f229be6cd7ef8e31c612c63063ef4596f"
 
 [[package]]
 name = "config-space-manager-esp-nvs"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/config-space-manager?rev=fc50b2ffef10d033d1169b80ab8358e780c67772#fc50b2ffef10d033d1169b80ab8358e780c67772"
+source = "git+https://github.com/iobewi/config-space-manager?rev=759c544f229be6cd7ef8e31c612c63063ef4596f#759c544f229be6cd7ef8e31c612c63063ef4596f"
 dependencies = [
  "config-space-manager",
  "esp-nvs",
- "espbewi-flash 0.1.0 (git+https://github.com/iobewi/espbewi?rev=0b11f035d1aed6d901adca2098c6efc29a2cee83)",
+ "espbewi-flash",
  "espbewi-nvs",
  "log",
 ]
@@ -1002,7 +1002,7 @@ dependencies = [
  "esp-metadata-generated",
  "esp-println",
  "esp-rtos",
- "espbewi-flash 0.1.0 (git+https://github.com/iobewi/espbewi?rev=95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0)",
+ "espbewi-flash",
  "espbewi-ota",
  "espbewi-tls",
  "espbewi-wifi",
@@ -1614,19 +1614,6 @@ dependencies = [
 [[package]]
 name = "espbewi-flash"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=0b11f035d1aed6d901adca2098c6efc29a2cee83#0b11f035d1aed6d901adca2098c6efc29a2cee83"
-dependencies = [
- "embassy-sync 0.8.0",
- "embedded-storage",
- "esp-hal",
- "esp-rom-sys",
- "esp-storage",
- "static_cell",
-]
-
-[[package]]
-name = "espbewi-flash"
-version = "0.1.0"
 source = "git+https://github.com/iobewi/espbewi?rev=95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0#95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0"
 dependencies = [
  "embassy-sync 0.8.0",
@@ -1640,12 +1627,12 @@ dependencies = [
 [[package]]
 name = "espbewi-nvs"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=0b11f035d1aed6d901adca2098c6efc29a2cee83#0b11f035d1aed6d901adca2098c6efc29a2cee83"
+source = "git+https://github.com/iobewi/espbewi?rev=95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0#95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0"
 dependencies = [
  "embedded-storage",
  "esp-nvs",
  "esp-storage",
- "espbewi-flash 0.1.0 (git+https://github.com/iobewi/espbewi?rev=0b11f035d1aed6d901adca2098c6efc29a2cee83)",
+ "espbewi-flash",
 ]
 
 [[package]]

@@ -423,7 +423,7 @@ run_push_firmware_resumable() {
     # le device rapporte comme `written` (durable), que ce soit via un
     # `partial` normal ou via le `written` qu'un `416 range_mismatch`
     # renvoie après un accroc réseau -- exactement le protocole de reprise
-    # que `atomic_ota::resume_plan`/`write_plan` expose déjà côté firmware
+    # que `fibewi::resume_plan`/`WriteSession` expose déjà côté firmware
     # (séparation `received` vs `durable`). Ne jamais supposer que ce que le
     # client vient d'envoyer est ce que le device a effectivement rendu
     # durable.

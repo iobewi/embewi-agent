@@ -25,7 +25,7 @@
 //! ├── post-reboot reconciliation     (reconcile, driven from on_boot)
 //! └── streaming WriteSession         (digest-verified, resumable)
 //!
-//! fibewi_esp (external crate)
+//! espbewi-ota (external crate)
 //! ├── ota_0/ota_1 partition lookup
 //! └── sector-aware ESP ArtifactStorage backend
 //! ```
@@ -66,7 +66,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
-use fibewi_esp::boot as boot_core;
+use fibewi::boot as boot_core;
 use boot_core::Decoded;
 use esp_bootloader_esp_idf::partitions::{AppPartitionSubType, DataPartitionSubType, PARTITION_TABLE_MAX_LEN, PartitionType};
 use config_space_manager::{Budget, ConfigSpace};
@@ -76,7 +76,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
-use fibewi_esp::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, find_app_partition};
+use espbewi_ota::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, find_app_partition};
 
 use config_space_manager_esp_nvs::NvsConfigBackend;
 use espbewi_flash::{EspFlash, SharedFlash};
@@ -246,7 +246,7 @@ fn read_otadata_locked(flash: &mut EspFlash) -> Option<[boot_core::Raw; SLOT_COU
 
 /// Where a new OTA image is currently allowed to go: the slot EWBT does
 /// not identify as the active Valid/Pending slot. EWBT owns that selection
-/// policy; `fibewi-esp` only resolves the already-chosen `ota_0` or
+/// policy; `espbewi-ota` only resolves the already-chosen `ota_0` or
 /// `ota_1` slot to its physical ESP partition.
 fn write_target_locked(flash: &mut EspFlash) -> Option<AppPartition> {
     let mut buffer = table_buffer();
@@ -883,7 +883,7 @@ pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &Pre
 }
 
 /// Physical erase-block size used only for diagnostics and scratch allocation.
-/// The actual erase/write mechanics and bounds checks live in `fibewi-esp`.
+/// The actual erase/write mechanics and bounds checks live in `espbewi-ota`.
 fn ota_erase_size() -> usize {
     <EspFlash as NorFlash>::ERASE_SIZE
 }
@@ -906,7 +906,7 @@ fn ota_erase_batch_size() -> u64 {
 /// connection at a time anyway.
 struct WriteSession {
     /// Physical ESP partition selected once at begin. EWBT chooses the slot;
-    /// `fibewi-esp` resolves that slot to this offset/size descriptor.
+    /// `espbewi-ota` resolves that slot to this offset/size descriptor.
     partition: AppPartition,
     /// One erase block, heap-allocated so it never consumes an Embassy task
     /// stack frame. The external backend borrows and reuses it on every
@@ -1077,7 +1077,7 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
 }
 
 /// Appends `data` to the session. `fibewi` owns streaming/durability;
-/// `fibewi-esp::EspArtifactStorage` owns the physical erase/program work.
+/// `espbewi-ota::EspArtifactStorage` owns the physical erase/program work.
 /// Handles `data` of any length, not just the HTTP handler's own
 /// read-buffer size -- it may span several sectors in one call.
 pub async fn write_chunk(flash: &SharedFlash, data: &[u8]) -> bool {

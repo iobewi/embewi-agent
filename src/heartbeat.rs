@@ -18,7 +18,7 @@
 //! 17 280/device/day -- pure overhead paid every tick, whether or not
 //! anything changed. Structured as an outer reconnect loop around an inner
 //! per-heartbeat loop (mirrors `log_stream.rs`'s `run`/`run_session`
-//! split): the inner loop keeps sending on the same [`esp_hal_mbedtls::mbedtls_rs::Session`]
+//! split): the inner loop keeps sending on the same [`espbewi_tls::mbedtls_rs::Session`]
 //! until something actually requires a new connection -- the socket drops,
 //! the server sends `Connection: close`, `ctrl_url` changes, or this
 //! heartbeat's own framing can't be trusted to still be in sync (see
@@ -47,7 +47,7 @@ use embassy_net::Stack;
 use embassy_net::tcp::TcpSocket;
 use embassy_time::{Duration, Instant, Timer};
 use log::{info, warn};
-use esp_hal_mbedtls::mbedtls_rs::Session;
+use espbewi_tls::mbedtls_rs::Session;
 use serde::Serialize;
 
 use crate::agent;
