@@ -1,23 +1,26 @@
 name: Refresh Cargo lock
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - Cargo.toml
+      - .github/workflows/refresh-lock.yml
 
 permissions:
   contents: write
 
 jobs:
   refresh-lock:
-    if: github.event.head_commit.message == 'ci: temporarily refresh migrated dependency lockfile'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: esp-rs/xtensa-toolchain@v1.5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          buildtargets: esp32s3
-      - run: cargo +esp generate-lockfile
+          toolchain: "1.88.0"
+      - run: cargo generate-lockfile
       - name: Commit lockfile if changed
         run: |
           if git diff --quiet -- Cargo.lock; then
