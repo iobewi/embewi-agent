@@ -16,7 +16,7 @@ use picoserve::request::RequestParts;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 use espbewi_flash::SharedFlash;
 
 /// Versions of the `/v1alpha1`-style protocol this agent answers, highest
