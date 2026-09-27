@@ -3,7 +3,7 @@
 //! This is application policy. FiBeWI never interprets these states.
 
 use config_space_manager::{Budget, ConfigSpace};
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"LFC2";
 const ENCODED_LEN: usize = 5;
