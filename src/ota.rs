@@ -78,7 +78,7 @@ use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
 use espbewi_ota::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, find_app_partition};
 
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 use espbewi_flash::{EspFlash, SharedFlash};
 
 /// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
