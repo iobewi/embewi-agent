@@ -1602,7 +1602,7 @@ dependencies = [
 [[package]]
 name = "espbewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "config-space-manager",
  "esp-nvs",
@@ -1614,7 +1614,7 @@ dependencies = [
 [[package]]
 name = "espbewi-flash"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embassy-sync 0.8.0",
  "embedded-storage",
@@ -1627,7 +1627,7 @@ dependencies = [
 [[package]]
 name = "espbewi-nvs"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embedded-storage",
  "esp-nvs",
@@ -1638,7 +1638,7 @@ dependencies = [
 [[package]]
 name = "espbewi-ota"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embedded-storage",
  "esp-bootloader-esp-idf",
@@ -1649,7 +1649,7 @@ dependencies = [
 [[package]]
 name = "espbewi-partitions"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embedded-storage",
  "esp-bootloader-esp-idf",
@@ -1659,7 +1659,7 @@ dependencies = [
 [[package]]
 name = "espbewi-tls"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embassy-net",
  "embassy-sync 0.8.0",
@@ -1674,7 +1674,7 @@ dependencies = [
 [[package]]
 name = "espbewi-wifi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/espbewi?rev=d82000443285c9272d0a6b6c42e3b7175bae068f#d82000443285c9272d0a6b6c42e3b7175bae068f"
+source = "git+https://github.com/iobewi/espbewi?rev=b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed#b457c88b3fa73f10f5f83a54f80fa4b08c42b0ed"
 dependencies = [
  "embassy-executor",
  "embassy-net",
