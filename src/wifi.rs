@@ -17,7 +17,7 @@ use static_cell::StaticCell;
 
 use config_space_manager_esp_nvs::NvsConfigBackend;
 
-pub use esp_wifi_manager::Network;
+pub use espbewi_wifi::Network;
 
 const CONFIG_MAGIC: &[u8; 4] = b"WFC1";
 const CONFIG_HEADER_LEN: usize = 6;
@@ -97,7 +97,7 @@ pub async fn is_provisioned(space: &WifiConfigSpace) -> bool {
 }
 
 pub struct WifiManager {
-    transport: esp_wifi_manager::WifiManager<SOCKETS>,
+    transport: espbewi_wifi::WifiManager<SOCKETS>,
     config: WifiConfigSpace,
 }
 
@@ -108,7 +108,7 @@ impl WifiManager {
         config: WifiConfigSpace,
     ) -> Self {
         Self {
-            transport: esp_wifi_manager::WifiManager::new(
+            transport: espbewi_wifi::WifiManager::new(
                 peripheral,
                 spawner,
                 RESOURCES.init(StackResources::new()),
