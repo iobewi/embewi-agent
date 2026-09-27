@@ -33,16 +33,16 @@ fault-injection-freeze = []
 
 [dependencies]
 # FiBeWI transactional firmware lifecycle core and ESP backend.
-fibewi = { git = "https://github.com/iobewi/fibewi", rev = "13af25256e4ce27cdb2ff43e19ed6e38b9a75c83" }
-fibewi-esp = { git = "https://github.com/iobewi/fibewi", rev = "13af25256e4ce27cdb2ff43e19ed6e38b9a75c83", package = "fibewi-esp", features = ["esp32s3"] }
+fibewi = { git = "https://github.com/iobewi/fibewi", rev = "13ebee5000d4c7653382cf4e1c7395a3eb74153f" }
 # Transport-agnostic Improv Serial codec/parser extracted from this firmware.
 # Pinned by commit while its API is still pre-stable.
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c4" }
 # One process-wide physical flash owner. No NVS or OTA semantics live here.
-espbewi-flash = { git = "https://github.com/iobewi/espbewi", rev = "0b11f035d1aed6d901adca2098c6efc29a2cee83", package = "espbewi-flash", features = ["esp32s3"] }
+espbewi-flash = { git = "https://github.com/iobewi/espbewi", rev = "95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0", package = "espbewi-flash", features = ["esp32s3"] }
+espbewi-ota = { git = "https://github.com/iobewi/espbewi", rev = "95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0", package = "espbewi-ota", features = ["esp32s3"] }
 # Reusable Wi-Fi station transport. Credential persistence and application
 # service supervision remain local to this firmware.
-esp-wifi-manager = { git = "https://github.com/iobewi/esp-wifi-manager", rev = "b322df0", features = ["esp32s3"] }
+espbewi-wifi = { git = "https://github.com/iobewi/espbewi", rev = "95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0", package = "espbewi-wifi", features = ["esp32s3"] }
 
 esp-hal = { version = "~1.1.0", features = ["esp32s3", "log-04", "unstable"] }
 
@@ -147,7 +147,7 @@ config-space-manager-esp-nvs = { git = "https://github.com/iobewi/config-space-m
 # hardware RNG adapter, time hooks, PEM validation/config construction,
 # Embassy client handshake and picoserve TLS socket. Application NVS/SNTP
 # policy remains in src/tls.rs.
-esp-hal-mbedtls = { git = "https://github.com/iobewi/esp-hal-mbedtls", rev = "fbe4a63", features = ["esp32s3", "picoserve"] }
+espbewi-tls = { git = "https://github.com/iobewi/espbewi", rev = "95a99b9605ea4d7ebfba4f2c94f13a7b403b82c0", package = "espbewi-tls", features = ["esp32s3", "picoserve"] }
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
