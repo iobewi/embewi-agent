@@ -19,7 +19,7 @@ use static_cell::StaticCell;
 
 use crate::agent;
 use crate::ota;
-use config_space_manager_esp_nvs::NvsConfigBackend;
+use espbewi_config_space::NvsConfigBackend;
 use espbewi_flash::SharedFlash;
 
 use super::{json_error, json_ok, reboot_after_delay, unauthorized};
