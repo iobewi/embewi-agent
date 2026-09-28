@@ -16,7 +16,8 @@ use embassy_sync::mutex::Mutex;
 use esp_hal::peripherals::LPWR;
 use picoserve::extract::Form;
 use picoserve::response::{File, Response, StatusCode};
-use picoserve::routing::{get, get_service};
+use iobewi_http::routing::{get, get_service};
+use iobewi_http::HttpRouter;
 use static_cell::StaticCell;
 
 use crate::agent;
@@ -100,7 +101,7 @@ pub async fn serve(
         StaticCell::new();
     let lpwr_cell = &*LPWR_CELL.init(Mutex::new(Some(lpwr)));
 
-    let router = picoserve::Router::new()
+    let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
         .route(
             "/",

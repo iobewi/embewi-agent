@@ -17,7 +17,8 @@ use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::LPWR;
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use picoserve::response::{ContentBody, ContentHeaders, Response, StatusCode};
-use picoserve::routing::PathRouter;
+use iobewi_http::routing::PathRouter;
+use iobewi_http::HttpRouter;
 
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
@@ -162,7 +163,7 @@ pub(super) async fn serve(
     stack: Stack<'static>,
     tls_config: &'static crate::tls::TlsConfigSpace,
     tls: crate::tls::TlsReferenceStatic,
-    router: &picoserve::Router<impl PathRouter>,
+    router: &HttpRouter<impl PathRouter>,
 ) -> ! {
     iobewi_esp_https::serve(
         stack,

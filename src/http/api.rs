@@ -14,7 +14,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use esp_hal::peripherals::LPWR;
 use picoserve::response::StatusCode;
-use picoserve::routing::{get, post, put_service};
+use iobewi_http::routing::{get, post, put_service};
+use iobewi_http::HttpRouter;
 use static_cell::StaticCell;
 
 use crate::agent;
@@ -53,7 +54,7 @@ pub async fn serve(
         StaticCell::new();
     let lpwr_cell = &*LPWR_CELL.init(Mutex::new(Some(lpwr)));
 
-    let router = picoserve::Router::new()
+    let router = HttpRouter::new()
         .route(
             "/v1alpha1/info",
             get(move |agent::Bearer(token): agent::Bearer| async move {
