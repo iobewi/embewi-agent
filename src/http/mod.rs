@@ -164,7 +164,7 @@ pub(super) async fn serve(
     tls: crate::tls::TlsReferenceStatic,
     router: &picoserve::Router<impl PathRouter>,
 ) -> ! {
-    iobewi_esp_http::serve(
+    iobewi_esp_https::serve(
         stack,
         tls,
         || crate::tls::server_config(tls_config),

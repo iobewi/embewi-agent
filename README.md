@@ -35,8 +35,8 @@ statique à la compilation ; chaque cible conserve sa toolchain, son linker,
 son plan de flash et son bootloader propres.
 
 L'interface métier OTA doit rejoindre FiBeWI. L'authentification et les routes applicatives de l'agent se branchent sur le
-serveur `iobewi-http`. `iobewi-esp-http` fournit le listener HTTPS et
-`iobewi-esp-tls` porte le TLS ESP.
+serveur `iobewi-http`. `iobewi-https` impose le handshake TLS.
+`iobewi-esp-https` fournit le listener ESP, `iobewi-esp-tls` porte MbedTLS.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 
