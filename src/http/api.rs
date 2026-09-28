@@ -28,6 +28,26 @@ use super::{json_error, json_ok, reboot_after_delay, unauthorized};
 mod ota_write;
 use ota_write::{AgentOtaBackend, OtaWrite};
 
+/// Application authorization and ESP persistence ports for the portable TLS API.
+struct AgentTlsProvisioningBackend {
+    tls_config: &'static crate::tls::TlsConfigSpace,
+    agent_config: &'static agent::AgentConfigSpace,
+}
+
+impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
+    async fn authorize(&self, token: &str) -> bool {
+        agent::is_authorized(self.agent_config, token).await
+    }
+
+    async fn save_cert(&self, cert_pem: &str, key_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
+        crate::tls::save_cert(self.tls_config, cert_pem, key_pem).await
+    }
+
+    async fn save_ca(&self, ca_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
+        crate::tls::save_ca(self.tls_config, ca_pem).await
+    }
+}
+
 /// Plain `async fn`, not `#[embassy_executor::task]`: called from inside
 /// `http::run`'s own `if is_locked() {...} else {...}` (see that module's
 /// doc comment) rather than spawned as an independent task, so its
@@ -202,54 +222,20 @@ pub async fn serve(
                 response
             }),
         )
+        // The TLS service owns authentication and the wire contract; the
+        // application only mounts its routes on the shared HTTPS server.
         .route(
-            "/v1alpha1/tls/cert",
+            iobewi_tls::http::CERT_PATH,
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
-                    return unauthorized();
-                }
-                #[derive(serde::Deserialize)]
-                struct CertBody {
-                    cert_pem: String,
-                    key_pem: String,
-                }
-                let Ok(req) = serde_json::from_str::<CertBody>(&body) else {
-                    return json_error(StatusCode::BAD_REQUEST, "{\"error\":\"missing_cert_or_key\"}");
-                };
-                match crate::tls::save_cert(tls_config, &req.cert_pem, &req.key_pem).await {
-                    Ok(()) => json_ok(String::from("{\"status\":\"saved\"}")),
-                    Err(crate::tls::SaveCertError::Invalid) => {
-                        json_error(StatusCode::BAD_REQUEST, "{\"error\":\"invalid_certificate\"}")
-                    }
-                    Err(crate::tls::SaveCertError::Mismatch) => {
-                        json_error(StatusCode::BAD_REQUEST, "{\"error\":\"cert_key_mismatch\"}")
-                    }
-                    Err(crate::tls::SaveCertError::Storage) => {
-                        json_error(StatusCode::INTERNAL_SERVER_ERROR, "{\"error\":\"nvs_write_failed\"}")
-                    }
-                }
+                let backend = AgentTlsProvisioningBackend { tls_config, agent_config };
+                iobewi_tls::http::cert_response(&backend, token.as_deref().unwrap_or(""), &body).await
             }),
         )
         .route(
-            "/v1alpha1/tls/ca",
+            iobewi_tls::http::CA_PATH,
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
-                    return unauthorized();
-                }
-                #[derive(serde::Deserialize)]
-                struct CaBody {
-                    ca_pem: String,
-                }
-                let Ok(req) = serde_json::from_str::<CaBody>(&body) else {
-                    return json_error(StatusCode::BAD_REQUEST, "{\"error\":\"missing_ca\"}");
-                };
-                match crate::tls::save_ca(tls_config, &req.ca_pem).await {
-                    Ok(()) => json_ok(String::from("{\"status\":\"saved\"}")),
-                    Err(crate::tls::SaveCertError::Storage) => {
-                        json_error(StatusCode::INTERNAL_SERVER_ERROR, "{\"error\":\"nvs_write_failed\"}")
-                    }
-                    Err(_) => json_error(StatusCode::BAD_REQUEST, "{\"error\":\"invalid_certificate\"}"),
-                }
+                let backend = AgentTlsProvisioningBackend { tls_config, agent_config };
+                iobewi_tls::http::ca_response(&backend, token.as_deref().unwrap_or(""), &body).await
             }),
         );
 
