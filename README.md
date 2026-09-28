@@ -44,6 +44,8 @@ chemins relatifs `/tls/cert` et `/tls/ca`. L’agent choisit le préfixe
 `/v1alpha1`, fournit l’autorisation Bearer et monte ces routes sur son
 routeur HTTPS. Les URL publiques restent `/v1alpha1/tls/cert` et
 `/v1alpha1/tls/ca`.
+`iobewi-ota` fournit aussi son routeur `/prepare`, `/write`, `/activate` ;
+l’agent le monte sous `/v1alpha1/ota` et fournit le redémarrage différé.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 

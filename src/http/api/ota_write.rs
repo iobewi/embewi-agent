@@ -6,8 +6,7 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
 
-pub use iobewi_ota::http::OtaWrite;
-
+#[derive(Clone)]
 pub struct AgentOtaBackend {
     pub flash: &'static SharedFlash,
     pub ota_config: &'static ota::OtaConfigSpace,
