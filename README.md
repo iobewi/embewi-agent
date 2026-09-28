@@ -46,6 +46,9 @@ routeur HTTPS. Les URL publiques restent `/v1alpha1/tls/cert` et
 `/v1alpha1/tls/ca`.
 `iobewi-ota` fournit aussi son routeur `/prepare`, `/write`, `/activate` ;
 l’agent le monte sous `/v1alpha1/ota` et fournit le redémarrage différé.
+`iobewi-log-stream` collecte les logs et les transmet par WebSocket ;
+`iobewi-esp-log-stream` fournit TLS, l’aléa matériel et la sortie console.
+L’agent fournit uniquement son URL de contrôle, son token et ses métadonnées.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 

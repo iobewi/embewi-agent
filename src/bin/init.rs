@@ -51,7 +51,7 @@ fn factory_agent() -> ota::PreloadedAgent {
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    embewi_agent_esp::log_stream::install();
+    iobewi_log_stream::install(iobewi_esp_log_stream::console_print, "embewi_agent_esp");
 
     let peripherals =
         esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));

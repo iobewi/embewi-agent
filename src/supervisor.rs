@@ -10,6 +10,34 @@ use log::warn;
 
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
+use iobewi_esp_log_stream::EspLogTransport;
+
+struct AgentLogConfig {
+    space: &'static crate::agent::AgentConfigSpace,
+}
+
+impl iobewi_log_stream::LogConfig for AgentLogConfig {
+    async fn ctrl_url(&self) -> alloc::string::String { crate::agent::ctrl_url(self.space).await }
+    async fn token(&self) -> alloc::string::String { crate::agent::token(self.space).await }
+    async fn node_id(&self) -> alloc::string::String { crate::agent::node_id(self.space).await }
+    fn timestamp(&self) -> u64 { crate::time::now().unwrap_or(0) }
+    fn workload(&self) -> &'static str { crate::agent::FW_NAME }
+    fn path(&self) -> alloc::string::String {
+        alloc::format!("{}/logs", crate::http::api::API_PREFIX)
+    }
+}
+
+#[embassy_executor::task]
+async fn run_log_stream(
+    stack: Stack<'static>,
+    agent_config: &'static crate::agent::AgentConfigSpace,
+    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls: crate::tls::TlsReferenceStatic,
+) -> ! {
+    let config = AgentLogConfig { space: agent_config };
+    let transport = EspLogTransport { stack, tls, tls_config, clock_is_set: crate::time::is_set };
+    iobewi_log_stream::run(&config, &transport).await
+}
 
 pub struct ApplicationSupervisor {
     spawner: Spawner,
@@ -90,7 +118,7 @@ impl ApplicationSupervisor {
                 self.tls,
             ).unwrap());
         self.spawner
-            .spawn(crate::log_stream::run(
+            .spawn(run_log_stream(
                 stack,
                 self.agent_config,
                 self.tls_config,

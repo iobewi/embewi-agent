@@ -29,7 +29,7 @@ mod ota_write;
 use ota_write::AgentOtaBackend;
 
 /// Public API namespace selected by EmBewi, independent of service routes.
-const API_PREFIX: &str = "/v1alpha1";
+pub(crate) const API_PREFIX: &str = "/v1alpha1";
 
 type RebootCell = Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>;
 
