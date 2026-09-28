@@ -33,17 +33,17 @@ fault-injection-freeze = []
 
 [dependencies]
 # FiBeWI transactional firmware lifecycle core and ESP backend.
-fibewi = { git = "https://github.com/iobewi/fibewi", rev = "dd6a7a93d00c9c56cf8b12af1f5ea92f4957e9ad" }
+fibewi = { git = "https://github.com/iobewi/fibewi", rev = "d0e48440bbb0ad21cc5ab13a3d7c9aec65533394" }
 # Transport-agnostic Improv Serial codec/parser extracted from this firmware.
 # Pinned by commit while its API is still pre-stable.
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c4" }
 # One process-wide physical flash owner. No NVS or OTA semantics live here.
-espbewi-flash = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", package = "espbewi-flash", features = ["esp32s3"] }
-espbewi-ota = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", package = "espbewi-ota", features = ["esp32s3", "shared-flash"] }
-espbewi-watchdog = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", features = ["esp32s3"] }
+espbewi-flash = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", package = "espbewi-flash", features = ["esp32s3"] }
+espbewi-ota = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", package = "espbewi-ota", features = ["esp32s3", "shared-flash"] }
+espbewi-watchdog = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", features = ["esp32s3"] }
 # Reusable Wi-Fi station transport. Credential persistence and application
 # service supervision remain local to this firmware.
-espbewi-wifi = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", package = "espbewi-wifi", features = ["esp32s3"] }
+espbewi-wifi = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", package = "espbewi-wifi", features = ["esp32s3"] }
 
 esp-hal = { version = "~1.1.0", features = ["esp32s3", "log-04", "unstable"] }
 
@@ -143,12 +143,12 @@ embassy-futures = "0.1"
 sha2 = { version = "0.10", default-features = false }
 # Generic isolated configuration spaces and their ESP/NVS backend.
 config-space-manager = { git = "https://github.com/iobewi/config-space-manager", rev = "1d4e02ae8d42cb51867a074bc9a54f78894ecf49" }
-espbewi-config-space = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", package = "espbewi-config-space", features = ["esp32s3"] }
+espbewi-config-space = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", package = "espbewi-config-space", features = ["esp32s3"] }
 # ESP HAL + MbedTLS integration extracted from this firmware. Owns the
 # hardware RNG adapter, time hooks, PEM validation/config construction,
 # Embassy client handshake and picoserve TLS socket. Application NVS/SNTP
 # policy remains in src/tls.rs.
-espbewi-tls = { git = "https://github.com/iobewi/espbewi", rev = "98d3a9b41cbcaf016d8cbea50bd55de0f3b0576a", package = "espbewi-tls", features = ["esp32s3", "picoserve"] }
+espbewi-tls = { git = "https://github.com/iobewi/espbewi", rev = "e17d1f5d0f9b826ef458cf9448ca25a9ff6a3c8d", package = "espbewi-tls", features = ["esp32s3", "picoserve"] }
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

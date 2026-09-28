@@ -3,8 +3,9 @@
 //!
 //! FiBeWI owns the transaction and EWBT state machines. `espbewi-ota`
 //! locates ESP partitions, executes EWBT flash writes with readback, and
-//! provides the NOR-flash artifact backend. Here the application owns its
-//! ConfigSpace schema, HTTP contract, watchdog policy and self-check gate.
+//! provides the NOR-flash artifact backend. FiBeWI owns the OTA metadata
+//! schema and business decisions; here the application binds ConfigSpace,
+//! the HTTP transport, watchdog policy and self-check gate.
 //!
 //! Mirrors `firmware-c`'s `embewi_ota.c`/`embewi_selfcheck.c` state machine
 //! (same `stage`/`slot`/`digest`/`deployment_id`/`size` staged-NVS layout),
@@ -19,7 +20,6 @@
 //! reboot there always restarts the Core from `start=0` (contrat's own
 //! `[RÉSERVE]` on inter-reboot write resume).
 
-use alloc::boxed::Box;
 use alloc::string::String;
 
 use embassy_futures::select::{Either, select};
@@ -36,10 +36,12 @@ use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
 use fibewi::embewi::{
     Metadata as OtaMetadata, Transaction as OtaTransaction,
-    format_digest, parse_digest, staged_from_transaction, transaction_from_staged,
+    PrepareRefusal, boot_action, check_compatibility, check_staged, check_target,
+    firmware_record, format_digest, parse_digest,
+    staged_from_transaction, transaction_from_staged,
 };
-pub use fibewi::embewi::{MetadataError as OtaMetadataError, Stage, Staged};
-use espbewi_ota::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, otadata};
+pub use fibewi::embewi::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
+use espbewi_ota::{AppSlot, otadata};
 use espbewi_ota::shared_flash as platform_ota;
 
 use espbewi_config_space::NvsConfigBackend;
@@ -241,14 +243,9 @@ pub async fn stage_preloaded_agent(
         return Err(PreloadedAgentError::DigestMismatch);
     }
 
-    let record = OtaTransaction::staged(
-        String::from(image.deployment_id),
-        fibewi::ArtifactRecord {
-            id: String::from("firmware"),
-            size: u64::from(image.size),
-            digest: expected,
-            target: String::from(target.slot.as_str()),
-        },
+    let record = firmware_record(
+        String::from(image.deployment_id), u64::from(image.size),
+        expected, String::from(target.slot.as_str()),
     );
     commit_transaction(ota_config, Some(&record))
         .await
@@ -277,57 +274,41 @@ pub struct PrepareResponse {
     reason: Option<&'static str>,
 }
 
-fn refuse(reason: &'static str) -> PrepareResponse {
-    PrepareResponse { accepted: false, target_slot: None, reason: Some(reason) }
+fn refuse(reason: PrepareRefusal) -> PrepareResponse {
+    PrepareResponse { accepted: false, target_slot: None, reason: Some(reason.reason()) }
 }
 
 /// Validates compat *before* a single byte transfers (contrat §3: "un
 /// binaire esp32-s3 flashé sur esp32 ne boote pas").
 pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &PrepareRequest) -> PrepareResponse {
-    if req.chip != esp_metadata_generated::chip_pretty!() {
-        return refuse("chip_mismatch");
-    }
-    if req.partition_layout != PARTITION_LAYOUT {
-        return refuse("layout_mismatch");
+    if let Err(reason) = check_compatibility(
+        &req.chip, &req.partition_layout,
+        esp_metadata_generated::chip_pretty!(), PARTITION_LAYOUT,
+    ) {
+        return refuse(reason);
     }
 
     // The guard must be released before `load_transaction` below: ConfigSpace
     // reads take this same (non-reentrant) `SharedFlash` mutex through the NVS
     // backend, so holding it across that call deadlocks the request.
     let Ok(target) = platform_ota::write_target(flash).await else {
-        return refuse("busy");
+        return refuse(PrepareRefusal::Busy);
     };
-    if req.size as usize > target.size {
-        return refuse("size_too_large");
+    if let Err(reason) = check_target(u64::from(req.size), Some(target.size as u64)) {
+        return refuse(reason);
     }
     // `Staged` will be superseded by `write_begin`, same as the PUT it
     // precedes -- accept. `Activating` is refused here too: reporting
     // `accepted` and then having the following PUT hit `write_begin`'s own
     // `Conflict` would be a prepare that lied.
-    if let Ok(Some(record)) = load_transaction(ota_config).await {
-        if !fibewi::embewi::can_supersede(Some(&record)) {
-            return refuse("busy");
-        }
+    let record = match load_transaction(ota_config).await {
+        Ok(record) => record,
+        Err(_) => return refuse(PrepareRefusal::Busy),
+    };
+    if let Err(reason) = check_staged(record.as_ref()) {
+        return refuse(reason);
     }
     PrepareResponse { accepted: true, target_slot: Some(target.slot.as_str()), reason: None }
-}
-
-/// Physical erase-block size used only for diagnostics and scratch allocation.
-/// The actual erase/write mechanics and bounds checks live in `espbewi-ota`.
-fn ota_erase_size() -> usize {
-    platform_ota::erase_size()
-}
-
-/**
- * Native ESP flash block-erase size. OTA partitions are 64 KiB-aligned
- * (see partitions.csv), so erasing one of these ranges lets esp-storage use
- * the ROM block-erase command instead of sixteen 4 KiB sector erases.
- *
- * Durability stays sector-sized: only the erase is batched. Programming and
- * fibewi's durable watermark still advance every 4 KiB.
- */
-fn ota_erase_batch_size() -> u64 {
-    platform_ota::erase_batch_size()
 }
 
 /// In-RAM write session (see the module doc comment for why this doesn't
@@ -335,51 +316,21 @@ fn ota_erase_batch_size() -> u64 {
 /// single static session -- this device only ever serves one HTTP
 /// connection at a time anyway.
 struct WriteSession {
-    /// Physical ESP partition selected once at begin. EWBT chooses the slot;
-    /// `espbewi-ota` resolves that slot to this offset/size descriptor.
-    partition: AppPartition,
-    /// One erase block, heap-allocated so it never consumes an Embassy task
-    /// stack frame. The external backend borrows and reuses it on every
-    /// append/finish call; padding remains a physical-write detail only.
-    scratch: Box<[u8]>,
+    /// The ESP backend owns partition geometry and erase/program bookkeeping.
+    writer: platform_ota::ArtifactWriter,
     /// The generic engine: received/durable byte counts, the undurable
     /// tail, and the streaming digest -- see `fibewi::artifact`'s own
-    /// doc comment. Everything sector-shaped stays out here, in
-    /// [`EspArtifactStorage`]; the engine itself has no notion of it.
+    /// doc comment. Everything sector-shaped lives in `espbewi-ota`.
     engine: fibewi::WriteSession,
     /// When `write_begin` opened this session -- purely diagnostic, logged
     /// by `write_finish` (contrat §4's own `written`/digest reply carries
     /// no timing field).
     started_at: Instant,
-    /// How many sectors have been erased+programmed so far -- purely
-    /// diagnostic, alongside `started_at`. Derived from how far
-    /// `engine.durable()` moves on each call (always a whole number of
-    /// sectors, except `write_finish`'s own final partial one).
-    sectors_flushed: u32,
-    /// Logical prefix already erased in large flash blocks. This is advanced
-    /// ahead of programming but never published as durable data: fibewi's
-    /// own durable watermark remains sector-sized and only moves after the
-    /// corresponding program operation succeeds.
-    erased_through: u64,
-    /// Number of native flash block erase operations requested, diagnostic
-    /// only (the final range may be shorter only if partition geometry ever
-    /// changes; the current A/B layout is block-aligned).
-    erase_batches: u32,
     /// Frozen at the first PUT: what the image is (`deployment_id`,
     /// `digest`) and how big (`total`). Every later PUT of the session must
     /// repeat them exactly ([`write_params_match`]) and `write_finish`
     /// uses these, never whatever the last request happened to carry.
     params: SessionParams,
-}
-
-/// The identity of one write session, fixed by its first PUT.
-pub struct SessionParams {
-    pub deployment_id: String,
-    /// `sha256:<64 hex>`, as sent.
-    pub digest: String,
-    /// Full image size: `Content-Range`'s total, or `Content-Length` for a
-    /// monolithic PUT.
-    pub total: u32,
 }
 
 static WRITE_SESSION: Mutex<CriticalSectionRawMutex, Option<WriteSession>> = Mutex::new(None);
@@ -427,11 +378,7 @@ pub fn write_is_final(has_range: bool, end: u32, total: u32) -> bool {
 /// Whether a continuing PUT carries the same `deployment_id`, digest and
 /// total as the session it claims to resume.
 pub async fn write_params_match(params: &SessionParams) -> bool {
-    WRITE_SESSION.lock().await.as_ref().is_some_and(|s| {
-        s.params.deployment_id == params.deployment_id
-            && s.params.digest.eq_ignore_ascii_case(&params.digest)
-            && s.params.total == params.total
-    })
+    WRITE_SESSION.lock().await.as_ref().is_some_and(|s| s.params.matches(params))
 }
 
 pub enum BeginError {
@@ -491,80 +438,22 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
     }
 
     *WRITE_SESSION.lock().await = Some(WriteSession {
-        partition: target,
-        scratch: alloc::vec![0u8; ota_erase_size()].into_boxed_slice(),
+        writer: platform_ota::ArtifactWriter::new(target),
         engine: fibewi::WriteSession::begin(u64::from(params.total), expected_digest),
         started_at: Instant::now(),
-        sectors_flushed: 0,
-        erased_through: 0,
-        erase_batches: 0,
         params,
     });
     Ok(())
 }
 
-/// Appends `data` to the session. `fibewi` owns streaming/durability;
-/// `espbewi-ota::EspArtifactStorage` owns the physical erase/program work.
-/// Handles `data` of any length, not just the HTTP handler's own
-/// read-buffer size -- it may span several sectors in one call.
+/// Appends bytes through the ESP writer. FiBeWI tracks digest and durable
+/// progress; espbewi-ota owns sector erase and flash programming.
 pub async fn write_chunk(flash: &SharedFlash, data: &[u8]) -> bool {
     let mut session_guard = WRITE_SESSION.lock().await;
     let Some(session) = session_guard.as_mut() else {
         return false;
     };
-
-    // Never touch flash for a chunk the session would refuse anyway --
-    // `engine.append` checks this too (`Error::TooLarge`), but checking it
-    // here first avoids locking flash at all for a chunk that's already
-    // doomed, same as the pre-`fibewi` code did.
-    let received = session.engine.received();
-    if u64::try_from(data.len()).ok().and_then(|len| received.checked_add(len)).is_none_or(|end| end > u64::from(session.params.total))
-    {
-        return false;
-    }
-
-    // Erase ahead in native 64 KiB flash blocks, but keep the actual write
-    // and durable watermark sector-sized. This removes the dominant cost of
-    // issuing one 4 KiB sector erase for every 4 KiB programmed while
-    // preserving Content-Range resume precision and the power-cut invariant.
-    let end_received = received + data.len() as u64;
-    let erase_batch = ota_erase_batch_size();
-    let desired_erased = end_received
-        .div_ceil(erase_batch)
-        .saturating_mul(erase_batch)
-        .min(session.partition.size as u64);
-
-    let mut flash_guard = flash.lock().await;
-    let before = session.engine.durable();
-    let raw_flash = flash_guard.storage();
-    let ok = if desired_erased > session.erased_through {
-        if erase_partition_range(
-            raw_flash,
-            session.partition,
-            session.erased_through,
-            desired_erased,
-        )
-        .is_err()
-        {
-            false
-        } else {
-            session.erase_batches +=
-                ((desired_erased - session.erased_through) / erase_batch) as u32;
-            session.erased_through = desired_erased;
-            match EspArtifactStorage::new_pre_erased(raw_flash, session.partition, session.scratch.as_mut()) {
-                Ok(mut backend) => session.engine.append(&mut backend, data).is_ok(),
-                Err(_) => false,
-            }
-        }
-    } else {
-        match EspArtifactStorage::new_pre_erased(raw_flash, session.partition, session.scratch.as_mut()) {
-            Ok(mut backend) => session.engine.append(&mut backend, data).is_ok(),
-            Err(_) => false,
-        }
-    };
-    let after = session.engine.durable();
-    session.sectors_flushed += (after - before).div_ceil(ota_erase_size() as u64) as u32;
-    ok
+    session.writer.append(flash, &mut session.engine, data).await
 }
 
 pub struct WriteFinishOk {
@@ -591,66 +480,28 @@ pub async fn write_finish(flash: &SharedFlash, ota_config: &OtaConfigSpace) -> R
     let Some(session) = WRITE_SESSION.lock().await.take() else {
         return Err(WriteFinishError::NotWriting);
     };
-    let WriteSession {
-        partition,
-        mut scratch,
-        engine,
-        started_at,
-        mut sectors_flushed,
-        erased_through,
-        erase_batches,
-        params,
-    } = session;
-    let slot = partition.slot;
-
-    // Every accepted byte passed through write_chunk first, which erases the
-    // containing native flash block before the engine can program it.
-    if engine.received() > erased_through {
-        warn!(
-            "ota: internal erase watermark {} behind received {}",
-            erased_through,
-            engine.received()
-        );
-        return Err(WriteFinishError::Incomplete);
-    }
-
-    // The image's own size rarely lands on a sector boundary: `finish`
-    // flushes whatever's left buffered (a final, partial sector) before
-    // checking completeness and the digest. The external ESP backend owns
-    // the final-block padding and erase/program geometry.
-    let before = engine.durable();
-    let committed = {
-        let mut flash_guard = flash.lock().await;
-        let raw_flash = flash_guard.storage();
-        let mut backend = match EspArtifactStorage::new_pre_erased(raw_flash, partition, scratch.as_mut()) {
-            Ok(backend) => backend,
-            Err(_) => {
-                warn!("ota: ESP artifact backend could not be constructed");
-                return Err(WriteFinishError::Incomplete);
-            }
-        };
-        match engine.finish(&mut backend) {
-            Ok(committed) => committed,
-            Err(fibewi::Error::DigestMismatch(computed)) => {
-                warn!("ota: digest mismatch, attendu={} calculé={}", params.digest, format_digest(&computed));
-                return Err(WriteFinishError::DigestMismatch);
-            }
-            Err(fibewi::Error::Incomplete { durable }) => {
-                warn!("ota: session ended at {durable} of {} octets", params.total);
-                return Err(WriteFinishError::Incomplete);
-            }
-            Err(e) => {
-                warn!("ota: write finish failed ({e:?})");
-                return Err(WriteFinishError::Incomplete);
-            }
+    let WriteSession { mut writer, engine, started_at, params } = session;
+    let slot = writer.slot();
+    let committed = match writer.finish(flash, engine).await {
+        Ok(committed) => committed,
+        Err(fibewi::Error::DigestMismatch(computed)) => {
+            warn!("ota: digest mismatch, attendu={} calculé={}", params.digest, format_digest(&computed));
+            return Err(WriteFinishError::DigestMismatch);
+        }
+        Err(fibewi::Error::Incomplete { durable }) => {
+            warn!("ota: session ended at {durable} of {} octets", params.total);
+            return Err(WriteFinishError::Incomplete);
+        }
+        Err(e) => {
+            warn!("ota: write finish failed ({e:?})");
+            return Err(WriteFinishError::Incomplete);
         }
     };
-    sectors_flushed += (committed.size - before).div_ceil(ota_erase_size() as u64) as u32;
 
     let digest = format_digest(&committed.digest);
-    let record = OtaTransaction::staged(
-        params.deployment_id.clone(),
-        fibewi::ArtifactRecord { id: String::from("firmware"), size: committed.size, digest: committed.digest, target: String::from(slot.as_str()) },
+    let record = firmware_record(
+        params.deployment_id.clone(), committed.size,
+        committed.digest, String::from(slot.as_str()),
     );
     commit_transaction(ota_config, Some(&record))
         .await
@@ -659,9 +510,9 @@ pub async fn write_finish(flash: &SharedFlash, ota_config: &OtaConfigSpace) -> R
     info!(
         "ota: write OK {} octets ({} secteurs programmés, {} blocs erase de {} KiB) en {}ms slot={} -> staged=written",
         committed.size,
-        sectors_flushed,
-        erase_batches,
-        ota_erase_batch_size() / 1024,
+        writer.sectors_flushed(),
+        writer.erase_batches(),
+        platform_ota::erase_batch_size() / 1024,
         elapsed.as_millis(),
         slot.as_str()
     );
@@ -887,7 +738,7 @@ pub async fn confirm_pending(
 
 /// Called once at boot (`src/bin/main.rs`): reconciles the persisted staged
 /// record with what the bootloader actually booted (contrat §3's "cœur dur
-/// du projet"). The decision itself is [`fibewi::reconcile`], a pure
+/// du projet"). The decision itself is [`fibewi::embewi::boot_action`], a pure
 /// table host-tested in that crate; this only gathers its inputs and
 /// applies the outcome. This is the only place `agent::State` is driven
 /// from `Booting`.
@@ -905,13 +756,7 @@ pub async fn on_boot(
     let staged = staged(ota_config).await;
     let image = current_ota_image(flash).await;
     let booted = active_slot(flash).await;
-    let booted_is_staged = (!booted.is_empty()).then(|| booted == staged.slot);
-    let staged_state = match staged.stage {
-        Stage::None => None,
-        Stage::Written => Some(TransactionState::Staged),
-        Stage::Activating => Some(TransactionState::Activating),
-    };
-    let action = fibewi::reconcile(staged_state, image, booted_is_staged);
+    let action = boot_action(&staged, image, (!booted.is_empty()).then_some(booted.as_str()));
     info!("ota: boot slot={booted:?} staged={} image={image:?} -> {action:?}", staged.stage.as_str());
 
     match action {
