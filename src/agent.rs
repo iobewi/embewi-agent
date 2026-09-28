@@ -16,8 +16,8 @@ use picoserve::request::RequestParts;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 
-use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_flash::SharedFlash;
 
 /// Versions of the `/v1alpha1`-style protocol this agent answers, highest
 /// first (contrat §4, "Découverte de version d'API").

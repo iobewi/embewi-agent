@@ -19,8 +19,8 @@ use static_cell::StaticCell;
 
 use crate::agent;
 use crate::ota;
-use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_flash::SharedFlash;
 
 use super::{json_error, json_ok, reboot_after_delay, unauthorized};
 

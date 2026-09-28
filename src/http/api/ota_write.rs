@@ -15,7 +15,7 @@ use picoserve::routing::RequestHandlerService;
 use picoserve::ResponseSent;
 
 use crate::{agent, ota};
-use espbewi_flash::SharedFlash;
+use iobewi_esp_flash::SharedFlash;
 
 use crate::http::{JsonResponse, json_error, json_ok, unauthorized};
 

@@ -8,8 +8,8 @@ use embassy_net::Stack;
 use esp_hal::peripherals::LPWR;
 use log::warn;
 
-use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_flash::SharedFlash;
 
 pub struct ApplicationSupervisor {
     spawner: Spawner,

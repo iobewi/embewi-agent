@@ -7,7 +7,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use config_space_manager::ConfigManager;
-use espbewi_config_space::{NvsConfigBackend, NvsPartition};
+use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embassy_executor::Spawner;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    let flash = espbewi_flash::init(peripherals.FLASH);
+    let flash = iobewi_esp_flash::init(peripherals.FLASH);
 
     static CONFIG_BACKEND: StaticCell<NvsConfigBackend> = StaticCell::new();
     let config_backend = &*CONFIG_BACKEND.init(

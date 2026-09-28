@@ -20,7 +20,7 @@ use embewi_agent_esp::hardware;
 use embewi_agent_esp::status;
 use embewi_agent_esp::tls;
 use config_space_manager::ConfigManager;
-use espbewi_config_space::{NvsConfigBackend, NvsPartition};
+use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embewi_agent_esp::wifi::{self, WifiManager};
 use embewi_agent_esp::runtime_config;
 
@@ -85,7 +85,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // The physical flash has one process-wide owner. ConfigSpace/NVS and
     // FiBeWI share only this serialized hardware capability.
-    let flash = espbewi_flash::init(peripherals.FLASH);
+    let flash = iobewi_esp_flash::init(peripherals.FLASH);
 
     // Components claim isolated persistent configuration capabilities at
     // boot. The manager knows capacities/ownership only; each component owns

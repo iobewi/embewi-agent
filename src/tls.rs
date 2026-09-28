@@ -1,6 +1,6 @@
 //! Embewi TLS policy and persistent configuration.
 //!
-//! Reusable ESP/MbedTLS mechanics live in `espbewi-tls`. This module
+//! Reusable ESP/MbedTLS mechanics live in `iobewi-esp-tls`. This module
 //! owns only the Embewi TLS configuration schema and policy. Persistence is
 //! one opaque ConfigSpace value: CA + server certificate + private key are
 //! replaced atomically by config-space-manager's backend.
@@ -10,10 +10,10 @@ use alloc::vec::Vec;
 
 use config_space_manager::{Budget, ConfigSpace};
 use embassy_net::tcp::TcpSocket;
-use espbewi_tls::mbedtls_rs::{Session, SessionConfig, SessionError};
+use iobewi_esp_tls::mbedtls_rs::{Session, SessionConfig, SessionError};
 use log::warn;
 
-use espbewi_config_space::NvsConfigBackend;
+use iobewi_esp_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"TLS1";
 const HEADER_LEN: usize = 10;
@@ -26,8 +26,8 @@ pub const CONFIG_BUDGET: Budget =
     Budget::new(HEADER_LEN + MAX_CA_LEN + MAX_CERT_LEN + MAX_KEY_LEN);
 
 pub type TlsConfigSpace = ConfigSpace<NvsConfigBackend>;
-pub type TlsReferenceStatic = espbewi_tls::TlsReferenceStatic;
-pub use espbewi_tls::embassy::PicoserveTlsSocket as TlsSocket;
+pub type TlsReferenceStatic = iobewi_esp_tls::TlsReferenceStatic;
+pub use iobewi_esp_tls::embassy::PicoserveTlsSocket as TlsSocket;
 
 #[derive(Clone, Default)]
 struct TlsConfig {
@@ -149,8 +149,8 @@ pub async fn ensure_server_identity(
             if config.cert_pem.is_empty() || config.key_pem.is_empty() {
                 return Err(IdentityBootstrapError::Corrupt);
             }
-            if espbewi_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_err()
-                || espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
+            if iobewi_esp_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_err()
+                || iobewi_esp_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
                     .is_err()
             {
                 return Err(IdentityBootstrapError::Invalid);
@@ -162,7 +162,7 @@ pub async fn ensure_server_identity(
         Err(LoadError::Corrupt) => return Err(IdentityBootstrapError::Corrupt),
     }
 
-    let generated = espbewi_tls::generate_self_signed_identity(common_name).map_err(|e| {
+    let generated = iobewi_esp_tls::generate_self_signed_identity(common_name).map_err(|e| {
         // The variant only says "generation"; the MbedTLS/PSA status is what
         // tells a missing RNG from a certificate-encoding failure.
         warn!("tls: identity generation failed: {e:?}");
@@ -171,8 +171,8 @@ pub async fn ensure_server_identity(
     if generated.cert_pem.len() > MAX_CERT_LEN || generated.key_pem.len() > MAX_KEY_LEN {
         return Err(IdentityBootstrapError::Generation);
     }
-    if espbewi_tls::validate_cert_key_pair(&generated.cert_pem, &generated.key_pem).is_err()
-        || espbewi_tls::server_config_from_pem(&generated.cert_pem, &generated.key_pem).is_err()
+    if iobewi_esp_tls::validate_cert_key_pair(&generated.cert_pem, &generated.key_pem).is_err()
+        || iobewi_esp_tls::server_config_from_pem(&generated.cert_pem, &generated.key_pem).is_err()
     {
         return Err(IdentityBootstrapError::Invalid);
     }
@@ -194,12 +194,12 @@ pub async fn ensure_server_identity(
         Ok(Some(stored))
             if !stored.cert_pem.is_empty()
                 && !stored.key_pem.is_empty()
-                && espbewi_tls::validate_cert_key_pair(
+                && iobewi_esp_tls::validate_cert_key_pair(
                     &stored.cert_pem,
                     &stored.key_pem,
                 )
                 .is_ok()
-                && espbewi_tls::server_config_from_pem(
+                && iobewi_esp_tls::server_config_from_pem(
                     &stored.cert_pem,
                     &stored.key_pem,
                 )
@@ -217,8 +217,8 @@ pub async fn ensure_server_identity(
 pub async fn server_identity_valid(space: &TlsConfigSpace) -> bool {
     match load_existing(space).await {
         Ok(Some(config)) if !config.cert_pem.is_empty() && !config.key_pem.is_empty() => {
-            espbewi_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_ok()
-                && espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
+            iobewi_esp_tls::validate_cert_key_pair(&config.cert_pem, &config.key_pem).is_ok()
+                && iobewi_esp_tls::server_config_from_pem(&config.cert_pem, &config.key_pem)
                     .is_ok()
         }
         _ => false,
@@ -229,7 +229,7 @@ pub async fn server_identity_valid(space: &TlsConfigSpace) -> bool {
 /// clock. Before SNTP converges, the callback returns `None`, so certificate
 /// date validation fails closed.
 pub fn init() -> TlsReferenceStatic {
-    espbewi_tls::init(crate::time::now)
+    iobewi_esp_tls::init(crate::time::now)
 }
 
 pub enum SaveCertError {
@@ -245,16 +245,16 @@ pub async fn save_cert(
     cert_pem: &str,
     key_pem: &str,
 ) -> Result<(), SaveCertError> {
-    match espbewi_tls::validate_cert_key_pair(cert_pem, key_pem) {
+    match iobewi_esp_tls::validate_cert_key_pair(cert_pem, key_pem) {
         Ok(()) => {}
-        Err(espbewi_tls::PairError::Mismatch) => return Err(SaveCertError::Mismatch),
+        Err(iobewi_esp_tls::PairError::Mismatch) => return Err(SaveCertError::Mismatch),
         Err(
-            espbewi_tls::PairError::InvalidCertificate
-            | espbewi_tls::PairError::InvalidPrivateKey,
+            iobewi_esp_tls::PairError::InvalidCertificate
+            | iobewi_esp_tls::PairError::InvalidPrivateKey,
         ) => return Err(SaveCertError::Invalid),
     }
 
-    if espbewi_tls::server_config_from_pem(cert_pem, key_pem).is_err() {
+    if iobewi_esp_tls::server_config_from_pem(cert_pem, key_pem).is_err() {
         return Err(SaveCertError::Invalid);
     }
 
@@ -277,13 +277,13 @@ pub async fn server_config(space: &TlsConfigSpace) -> Option<SessionConfig<'stat
     if config.cert_pem.is_empty() || config.key_pem.is_empty() {
         return None;
     }
-    espbewi_tls::server_config_from_pem(&config.cert_pem, &config.key_pem).ok()
+    iobewi_esp_tls::server_config_from_pem(&config.cert_pem, &config.key_pem).ok()
 }
 
 /// Validates and atomically replaces the CA trusted by outbound TLS
 /// connections while preserving the current server certificate/key.
 pub async fn save_ca(space: &TlsConfigSpace, ca_pem: &str) -> Result<(), SaveCertError> {
-    if !espbewi_tls::validate_ca_pem(ca_pem) {
+    if !iobewi_esp_tls::validate_ca_pem(ca_pem) {
         return Err(SaveCertError::Invalid);
     }
 
@@ -338,7 +338,7 @@ pub async fn connect_client<'h, 'buf>(
         return Err(ClientTlsError::NoCa);
     }
 
-    espbewi_tls::embassy::connect_client(
+    iobewi_esp_tls::embassy::connect_client(
         tls,
         stack,
         rx_buffer,
@@ -349,10 +349,10 @@ pub async fn connect_client<'h, 'buf>(
     )
     .await
     .map_err(|e| match e {
-        espbewi_tls::embassy::ClientConnectError::BadCa => ClientTlsError::BadCa,
-        espbewi_tls::embassy::ClientConnectError::Dns => ClientTlsError::Dns,
-        espbewi_tls::embassy::ClientConnectError::Tcp(e) => ClientTlsError::Tcp(e),
-        espbewi_tls::embassy::ClientConnectError::Handshake(e) => {
+        iobewi_esp_tls::embassy::ClientConnectError::BadCa => ClientTlsError::BadCa,
+        iobewi_esp_tls::embassy::ClientConnectError::Dns => ClientTlsError::Dns,
+        iobewi_esp_tls::embassy::ClientConnectError::Tcp(e) => ClientTlsError::Tcp(e),
+        iobewi_esp_tls::embassy::ClientConnectError::Handshake(e) => {
             ClientTlsError::Handshake(e)
         }
     })

@@ -21,7 +21,7 @@ use static_cell::StaticCell;
 
 use crate::agent;
 use crate::lifecycle::LifecycleState;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_flash::SharedFlash;
 
 use super::{STYLE_CSS, html_escape, reboot_after_delay};
 

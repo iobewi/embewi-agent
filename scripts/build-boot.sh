@@ -14,9 +14,9 @@ FACTORY="$OUT_DIR/firmware.bin"
 AGENT_BIN="$OUT_DIR/agent.bin"
 APP_BIN="$OUT_DIR/app.bin"
 
-echo "== espbewi ESP bootloader"
-BOOT_ELF="$(bash scripts/build-espbewi-bootloader.sh)"
-BOOT_BIN="target/espbewi-bootloader.bin"
+echo "== iobewi-esp ESP bootloader"
+BOOT_ELF="$(bash scripts/build-iobewi-esp-bootloader.sh)"
+BOOT_BIN="target/iobewi-esp-bootloader.bin"
 espflash save-image "${FLASH_ARGS[@]}" --ignore-app-descriptor     "$BOOT_ELF" "$BOOT_BIN"
 
 echo "== embewi-agent"
@@ -36,7 +36,7 @@ EMBEWI_FACTORY_AGENT_SIZE="$AGENT_SIZE" EMBEWI_FACTORY_AGENT_DIGEST="$AGENT_DIGE
 echo "== factory base image (bootloader + partitions + embewi-init in ota_0)"
 espflash save-image "${FLASH_ARGS[@]}" --merge --skip-padding     --bootloader "$BOOT_BIN"     --partition-table partitions.csv     "target/${TARGET}/release/embewi-init" "$FACTORY"
 
-# otadata intentionally remains blank in the factory image. The espbewi
+# otadata intentionally remains blank in the factory image. The iobewi-esp
 # bootloader executes FiBeWI lifecycle semantics, owns runtime boot state,
 # and bootstraps ota_0 as Valid(seq=1) on first boot.
 # ESP Web Tools adds AGENT_BIN separately at ota_1 (0x1a0000).

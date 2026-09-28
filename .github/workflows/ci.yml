@@ -13,7 +13,7 @@ jobs:
           toolchain: "1.88.0"
       - run: bash -n scripts/test-api.sh
       - run: bash -n scripts/build-boot.sh
-      - run: bash -n scripts/build-espbewi-bootloader.sh
+      - run: bash -n scripts/build-iobewi-esp-bootloader.sh
 
   check-bootloader-esp32s3:
     runs-on: ubuntu-latest
@@ -25,7 +25,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           buildtargets: esp32s3
-      - run: bash scripts/build-espbewi-bootloader.sh >/dev/null
+      - run: bash scripts/build-iobewi-esp-bootloader.sh >/dev/null
 
   check-esp32s3:
     runs-on: ubuntu-latest

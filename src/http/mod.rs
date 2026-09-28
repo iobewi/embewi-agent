@@ -19,8 +19,8 @@ use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use picoserve::response::{ContentBody, ContentHeaders, Response, StatusCode};
 use picoserve::routing::PathRouter;
 
-use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_flash::SharedFlash;
 
 pub mod api;
 pub mod config;
