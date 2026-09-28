@@ -3,12 +3,12 @@
 //! Reusable ESP/MbedTLS mechanics live in `iobewi-esp-tls`. This module
 //! owns only the Embewi TLS configuration schema and policy. Persistence is
 //! one opaque ConfigSpace value: CA + server certificate + private key are
-//! replaced atomically by config-space-manager's backend.
+//! replaced atomically by IOBEWI ConfigSpace's backend.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use embassy_net::tcp::TcpSocket;
 use iobewi_esp_tls::mbedtls_rs::{Session, SessionConfig, SessionError};
 use log::warn;

@@ -2,7 +2,7 @@
 //!
 //! The component owns the schema inside its ConfigSpace.
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use log::warn;
 
 use iobewi_esp_config_space::NvsConfigBackend;
