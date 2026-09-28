@@ -292,7 +292,6 @@ pub enum ActivateError {
 /// `activating` -- completes this promotion.
 // The watchdog must be armed only after TIMG0 has been initialized: the first
 // TimerGroup::new resets the peripheral block and would discard an earlier arm.
-const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 pub fn arm_boot_watchdog() {
     iobewi_esp_ota::service::arm_watchdog_ms(WATCHDOG_DEADLINE_MS);

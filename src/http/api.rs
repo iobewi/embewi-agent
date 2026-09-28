@@ -168,20 +168,16 @@ pub async fn serve(
                 ))
             }),
         )
-        // OTA A/B (contrat §3/§4/§6) -- streaming write logic lives in
-        // `ota_write.rs`, everything else (`src/ota.rs`) is just called
-        // through like the routes above.
+        // OTA A/B (contrat §3/§4/§6): the portable OTA service owns the
+        // HTTP contract, while the agent provides authorization and reboot.
         .route(
             "/v1alpha1/ota/prepare",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                let Ok(req) = serde_json::from_str::<ota::PrepareRequest>(&body) else {
-                    return json_error(StatusCode::BAD_REQUEST, "{\"error\":\"bad_request\"}");
-                };
-                let resp = ota::prepare(flash, ota_config, &req).await;
-                json_ok(serde_json::to_string(&resp).unwrap_or_default())
+                let backend = AgentOtaBackend { flash, ota_config, agent_config };
+                iobewi_ota::http::prepare_response(&backend, &body).await
             }),
         )
         .route("/v1alpha1/ota/write", put_service(OtaWrite { backend: AgentOtaBackend { flash, ota_config, agent_config } }))
@@ -191,29 +187,18 @@ pub async fn serve(
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                let Ok(req) = serde_json::from_str::<iobewi_ota::http::ActivateRequest>(&body) else {
-                    return json_error(StatusCode::BAD_REQUEST, "{\"error\":\"missing_deployment_id\"}");
-                };
-                let target_slot = match ota::activate(flash, ota_config, &req.deployment_id).await {
-                    Ok(slot) => slot,
-                    Err(ota::ActivateError::DeploymentMismatch) => {
-                        return json_error(StatusCode::CONFLICT, "{\"error\":\"deployment_mismatch\"}");
-                    }
-                    Err(ota::ActivateError::NotStaged) => {
-                        return json_error(StatusCode::CONFLICT, "{\"error\":\"not_staged\"}");
-                    }
-                    Err(ota::ActivateError::Storage(_)) => {
-                        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "{\"error\":\"nvs_write_failed\"}");
-                    }
-                };
+                let backend = AgentOtaBackend { flash, ota_config, agent_config };
+                let (response, reboot) = iobewi_ota::http::activate_response(&backend, &body).await;
                 // Same one-shot `lpwr_cell` as `/reboot` above -- there's
                 // only one `lpwr` to hand out, whichever fires first wins.
-                if let Some(lpwr) = lpwr_cell.lock().await.take()
-                    && let Ok(spawn_token) = reboot_after_delay(lpwr)
-                {
-                    spawner.spawn(spawn_token);
+                if reboot {
+                    if let Some(lpwr) = lpwr_cell.lock().await.take()
+                        && let Ok(spawn_token) = reboot_after_delay(lpwr)
+                    {
+                        spawner.spawn(spawn_token);
+                    }
                 }
-                json_ok(format!("{{\"status\":\"rebooting\",\"target_slot\":\"{target_slot}\"}}"))
+                response
             }),
         )
         .route(

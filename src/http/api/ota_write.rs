@@ -3,7 +3,7 @@
 
 use crate::{agent, ota};
 use iobewi_esp_flash::SharedFlash;
-use iobewi_ota::http::{BeginError, WriteBackend, WriteFinishError, WriteFinishOk};
+use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
 
 pub use iobewi_ota::http::OtaWrite;
@@ -12,6 +12,20 @@ pub struct AgentOtaBackend {
     pub flash: &'static SharedFlash,
     pub ota_config: &'static ota::OtaConfigSpace,
     pub agent_config: &'static agent::AgentConfigSpace,
+}
+
+impl ControlBackend for AgentOtaBackend {
+    async fn prepare(&self, request: &PrepareRequest) -> PrepareResponse {
+        ota::prepare(self.flash, self.ota_config, request).await
+    }
+
+    async fn activate(&self, deployment_id: &str) -> Result<alloc::string::String, ActivateFailure> {
+        ota::activate(self.flash, self.ota_config, deployment_id).await.map_err(|error| match error {
+            ota::ActivateError::NotStaged => ActivateFailure::NotStaged,
+            ota::ActivateError::DeploymentMismatch => ActivateFailure::DeploymentMismatch,
+            ota::ActivateError::Storage(_) => ActivateFailure::Storage,
+        })
+    }
 }
 
 impl WriteBackend for AgentOtaBackend {
