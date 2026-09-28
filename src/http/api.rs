@@ -28,6 +28,9 @@ use super::{json_error, json_ok, reboot_after_delay, unauthorized};
 mod ota_write;
 use ota_write::{AgentOtaBackend, OtaWrite};
 
+/// Public API namespace selected by EmBewi, independent of service routes.
+const API_PREFIX: &str = "/v1alpha1";
+
 /// Application authorization and ESP persistence ports for the portable TLS API.
 struct AgentTlsProvisioningBackend {
     tls_config: &'static crate::tls::TlsConfigSpace,
@@ -74,9 +77,9 @@ pub async fn serve(
         StaticCell::new();
     let lpwr_cell = &*LPWR_CELL.init(Mutex::new(Some(lpwr)));
 
-    let router = HttpRouter::new()
+    let api_routes = HttpRouter::new()
         .route(
-            "/v1alpha1/info",
+            "/info",
             get(move |agent::Bearer(token): agent::Bearer| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -85,7 +88,7 @@ pub async fn serve(
             }),
         )
         .route(
-            "/v1alpha1/health",
+            "/health",
             get(move |agent::Bearer(token): agent::Bearer| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -94,7 +97,7 @@ pub async fn serve(
             }),
         )
         .route(
-            "/v1alpha1/config",
+            "/config",
             get(move |agent::Bearer(token): agent::Bearer| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -123,7 +126,7 @@ pub async fn serve(
             }),
         )
         .route(
-            "/v1alpha1/token",
+            "/token",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -148,7 +151,7 @@ pub async fn serve(
             }),
         )
         .route(
-            "/v1alpha1/reboot",
+            "/reboot",
             post(move |agent::Bearer(token): agent::Bearer| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -165,7 +168,7 @@ pub async fn serve(
             }),
         )
         .route(
-            "/v1alpha1/app/port",
+            "/app/port",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -192,7 +195,7 @@ pub async fn serve(
         // OTA A/B (contrat §3/§4/§6): the portable OTA service owns the
         // HTTP contract, while the agent provides authorization and reboot.
         .route(
-            "/v1alpha1/ota/prepare",
+            "/ota/prepare",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -201,9 +204,9 @@ pub async fn serve(
                 iobewi_ota::http::prepare_response(&backend, &body).await
             }),
         )
-        .route("/v1alpha1/ota/write", put_service(OtaWrite { backend: AgentOtaBackend { flash, ota_config, agent_config } }))
+        .route("/ota/write", put_service(OtaWrite { backend: AgentOtaBackend { flash, ota_config, agent_config } }))
         .route(
-            "/v1alpha1/ota/activate",
+            "/ota/activate",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
@@ -238,6 +241,7 @@ pub async fn serve(
                 iobewi_tls::http::ca_response(&backend, token.as_deref().unwrap_or(""), &body).await
             }),
         );
+    let router = HttpRouter::new().nest(API_PREFIX, api_routes);
 
     super::serve(stack, tls_config, tls, &router).await
 }

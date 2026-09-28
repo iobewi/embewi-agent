@@ -39,9 +39,11 @@ L'authentification et les routes applicatives de l'agent se branchent sur le
 serveur `iobewi-http`. Le même service porte les échanges HTTP sortants
 du heartbeat et le protocole WebSocket des logs. `iobewi-https` impose le handshake TLS.
 `iobewi-esp-https` fournit le listener ESP, `iobewi-esp-tls` porte MbedTLS.
-Les endpoints de provisionnement `/v1alpha1/tls/cert` et `/v1alpha1/tls/ca`
-sont gérés par `iobewi-tls`; l’agent leur fournit l’autorisation Bearer et
-les monte sur son routeur HTTPS.
+Les endpoints de provisionnement sont fournis par `iobewi-tls` sous les
+chemins relatifs `/tls/cert` et `/tls/ca`. L’agent choisit le préfixe
+`/v1alpha1`, fournit l’autorisation Bearer et monte ces routes sur son
+routeur HTTPS. Les URL publiques restent `/v1alpha1/tls/cert` et
+`/v1alpha1/tls/ca`.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 
