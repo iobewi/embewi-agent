@@ -250,11 +250,8 @@ async fn connect_and_upgrade<'h, 'buf>(
 
 /// Drives an already-upgraded WS session until it ends, always returning a
 /// message describing why (a clean server-initiated close included --
-/// there's no "done" state for a log stream short of that). Unchanged from
-/// before the reconnect backoff was added: framing, ping/pong, and the
-/// ring-buffer drain are all exactly what they were, just moved out of
-/// [`connect_and_upgrade`] so [`run`] can time how long the session
-/// actually stayed up.
+/// there's no "done" state for a log stream short of that). The framework
+/// handles frames and ping/pong; this task controls when to drain the ring.
 async fn pump_session<'h, 'buf>(
     session: &mut ClientStream<'h, 'buf>,
     agent_config: &'static agent::AgentConfigSpace,

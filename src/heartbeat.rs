@@ -3,12 +3,9 @@
 //! that never accepts inbound connections. Silent (skips the tick) while
 //! `ctrl_url` is empty -- nothing provisioned yet, nothing to talk to.
 //!
-//! HTTPS via `tls::connect_client` (contrat §5: "le scheme est forcé en
-//! https:// indépendamment du scheme stocké dans ctrl_url"). Hand-rolled
-//! HTTP/1.1 request/response instead of `reqwless`: `reqwless`'s own TLS
-//! support is hard-wired to a different crate (`embedded-tls`), and running
-//! two separate TLS stacks in the same firmware just to keep `reqwless`
-//! costs more flash than writing this one POST by hand costs in code.
+//! HTTPS via the platform TLS transport (contrat §5: "le scheme est forcé en
+//! https:// indépendamment du scheme stocké dans ctrl_url"). The portable
+//! `iobewi-http` client writes requests and drains responses over that stream.
 //! Stays silent (no heartbeat sent, tick skipped) until a CA is configured
 //! via `POST /v1alpha1/tls/ca` -- see `tls::ClientTlsError::NoCa`.
 //!
@@ -21,8 +18,8 @@
 //! split): the inner loop keeps sending on the same [`ClientStream`]
 //! until something actually requires a new connection -- the socket drops,
 //! the server sends `Connection: close`, `ctrl_url` changes, or this
-//! heartbeat's own framing can't be trusted to still be in sync (see
-//! [`drain_response`]) -- at which point it returns and the outer loop
+//! response framing cannot be safely reused (see
+//! [`iobewi_http::client::drain_response`]) -- at which point it returns and the outer loop
 //! reconnects.
 //!
 //! The one thing that makes reuse safe at all: **fully draining every
@@ -34,7 +31,7 @@
 //! one -- so `iobewi_http::client::drain_response` parses `Content-Length` (or a minimal
 //! `Transfer-Encoding: chunked` decoder) and consumes precisely that many
 //! body bytes before this loop is allowed to send again. A response with
-//! neither framing header present is genuinely ambiguous per HTTP/1.1(no
+//! neither framing header present is genuinely ambiguous per HTTP/1.1 (no
 //! way to know where its body ends short of reading until the connection
 //! closes) -- treated the same as an explicit `Connection: close`, not
 //! guessed at.
@@ -263,4 +260,3 @@ async fn send_heartbeat<'h, 'buf>(
     ).await?;
     Ok(())
 }
-
