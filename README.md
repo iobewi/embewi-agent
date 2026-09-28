@@ -6,7 +6,7 @@ Agent embarqué Rust du protocole [Embewi](https://github.com/iobewi/embewi)
 rattachée à ce dépôt sous forme de submodule.
 
 **Objectif :** compiler le même agent avec un adaptateur de plateforme choisi
-à la construction : [`espbewi`](https://github.com/iobewi/espbewi) pour ESP,
+à la construction : [`iobewi-esp`](https://github.com/iobewi/iobewi-esp) pour ESP,
 puis `rpbewi` pour RP2350 et `teensybewi` pour Teensy. Ces deux derniers
 adaptateurs sont prévus, pas encore implémentés.
 
@@ -22,19 +22,20 @@ extrait. Le paquet et le binaire portent encore le nom historique
 | Composant | Responsabilité |
 | --- | --- |
 | `embewi-agent` | Services applicatifs, identité, configuration, authentification et assemblage des capacités requises, sans dépendance à une puce. |
+| [IOBEWI HTTP](https://github.com/iobewi/iobewi) | Contrat et dispatch HTTP/TLS portables, implémentés par chaque plateforme. |
 | [FiBeWI](https://github.com/iobewi/fibewi) | Gestion OTA, états A/B, reprise, validation et interface métier OTA indépendantes du matériel. |
 | [config-space-manager](https://github.com/iobewi/config-space-manager) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
-| `espbewi` / futurs `rpbewi`, `teensybewi` | Implémentations matérielles des contrats demandés par l'agent, FiBeWI et ConfigSpace. |
+| `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des contrats demandés par l'agent, FiBeWI et ConfigSpace. |
 | Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
 
 FiBeWI et ConfigSpace définissent leurs interfaces et ne dépendent pas d'un
-adaptateur ESP. `espbewi` fournit leurs implémentations sur ESP : flash,
+adaptateur ESP. `iobewi-esp` fournit leurs implémentations sur ESP : flash,
 partitions, boot, NVS, watchdog, Wi-Fi et TLS. Le choix de la plateforme est
 statique à la compilation ; chaque cible conserve sa toolchain, son linker,
 son plan de flash et son bootloader propres.
 
-L'interface métier OTA doit rejoindre FiBeWI. L'authentification de l'agent
-et l'adaptation au serveur HTTP restent aux frontières de l'application.
+L'interface métier OTA doit rejoindre FiBeWI. L'authentification et les routes applicatives de l'agent se branchent sur le
+serveur `iobewi-http` ; `iobewi-esp` fournit le listener HTTPS et le TLS ESP.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 
@@ -42,7 +43,7 @@ modifier la logique métier de l'agent.
 
 - **Déjà séparé :** le moteur de transactions et la logique EWBT/A-B dans
   FiBeWI ; l'accès flash, `otadata`, ConfigSpace/NVS, Wi-Fi, TLS et watchdog
-  ESP dans les composants `espbewi`.
+  ESP dans les crates `iobewi-esp-*`.
 - **Encore à extraire :** une partie de la gestion OTA, de son interface métier
   et de l'orchestration de la flash se trouve dans `src/ota.rs` et
   `src/http/api/ota_write.rs`. Les types ESP concrets et l'initialisation des
