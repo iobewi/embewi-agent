@@ -36,6 +36,7 @@ use fibewi::embewi::{
     Metadata as OtaMetadata, Transaction as OtaTransaction,
     MemoryTransactionMetadata, PrepareRefusal, boot_action, check_compatibility,
     check_staged, check_target, firmware_record, format_digest, parse_digest,
+    pending_check_action, FinishValidationError, PendingCheckAction,
 };
 pub use fibewi::embewi::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
 use espbewi_ota::{AppSlot, otadata};
@@ -76,7 +77,7 @@ pub enum PreloadedAgentError {
 /// device forces its own reset -- unconfirmed past this, the bootloader's
 /// own rollback takes over on the next boot. Same value `firmware-c` uses
 /// (`EMBEWI_PENDING_DEADLINE_MS`).
-const SELFCHECK_DEADLINE: Duration = Duration::from_secs(15);
+const SELFCHECK_DEADLINE: Duration = Duration::from_millis(fibewi::embewi::PENDING_VERIFY_TIMEOUT_MS);
 /// How long the anti-freeze watchdog (see [`arm_boot_watchdog`]) gets before
 /// it force-resets the device. Longer than `SELFCHECK_DEADLINE` so the
 /// graceful, logged software timeout in `selfcheck_task` fires first in the
@@ -519,31 +520,26 @@ pub enum ActivateError {
     Storage(OtaMetadataError),
 }
 
-/// Records the validated image's digest and `deployment_id` as the active
-/// ones. Idempotent, so an interrupted validation can be finished at the
-/// next boot ([`Action::FinishInterruptedActivation`]).
-async fn promote_staged(ota_config: &OtaConfigSpace, staged: &Staged) -> Result<(), OtaMetadataError> {
-    fibewi::embewi::promote_staged(&OtaStore(ota_config), staged).await
-}
-
-/// Promotes the staged record once the image is confirmed, then forgets it.
+/// Persists FiBeWI's validation result after the image is confirmed.
 /// If a write fails the `activating` record is kept and the agent goes
 /// `Degraded`: the image is valid and stays so (never rolled back over
 /// bookkeeping), and the next boot -- bootloader `Valid`, same slot, still
 /// `activating` -- completes this promotion.
 async fn finish_validation(ota_config: &OtaConfigSpace, staged: &Staged) {
-    if promote_staged(ota_config, staged).await.is_err() {
-        warn!("ota: validated image's digest/deployment_id couldn't be persisted, will retry at next boot");
-        agent::set_state(agent::State::Degraded);
-        return;
+    match fibewi::embewi::finish_validation(&OtaStore(ota_config), staged).await {
+        Ok(()) => {
+            agent::set_state(agent::State::Running);
+            info!("ota: validation done (deployment_id={})", staged.deployment_id);
+        }
+        Err(FinishValidationError::Promote(_)) => {
+            warn!("ota: validated image's digest/deployment_id couldn't be persisted, will retry at next boot");
+            agent::set_state(agent::State::Degraded);
+        }
+        Err(FinishValidationError::Clear(_)) => {
+            warn!("ota: staged record couldn't be cleared after validation, will retry at next boot");
+            agent::set_state(agent::State::Degraded);
+        }
     }
-    if clear_staged(ota_config).await.is_err() {
-        warn!("ota: staged record couldn't be cleared after validation, will retry at next boot");
-        agent::set_state(agent::State::Degraded);
-        return;
-    }
-    agent::set_state(agent::State::Running);
-    info!("ota: validation done (deployment_id={})", staged.deployment_id);
 }
 
 /// Confirms the just-self-checked image with the bootloader and cancels its
@@ -653,8 +649,12 @@ pub async fn confirm_pending(
     // a plain software reset here is a faithful port of what `firmware-c`
     // itself does in this exact spot (an `esp_timer` deadline calling
     // `esp_restart()`, not a TWDT trip).
-    match select(nvs_backend.self_check(), Timer::after(SELFCHECK_DEADLINE)).await {
-        Either::First(true) => {
+    let check = match select(nvs_backend.self_check(), Timer::after(SELFCHECK_DEADLINE)).await {
+        Either::First(passed) => Some(passed),
+        Either::Second(()) => None,
+    };
+    match pending_check_action(check) {
+        PendingCheckAction::Confirm => {
             // TEST/DEBUG ONLY (`fault-injection` feature, never in a
             // production image): reset right here, after the self-check
             // passed but before `confirm` ever runs -- so `otadata` is left
@@ -670,8 +670,8 @@ pub async fn confirm_pending(
             }
             mark_valid(flash, ota_config).await
         }
-        Either::First(false) => mark_invalid_and_reboot(flash).await,
-        Either::Second(()) => {
+        PendingCheckAction::Reject => mark_invalid_and_reboot(flash).await,
+        PendingCheckAction::Reset => {
             warn!("ota: self-check deadline exceeded, forcing a reset (bootloader will roll back)");
             esp_hal::system::software_reset();
         }
