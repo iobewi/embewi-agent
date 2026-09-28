@@ -42,19 +42,18 @@ modifier la logique métier de l'agent.
 
 ## Migration en cours
 
-- **Déjà séparé :** le moteur de transactions, ses métadonnées et la logique
-  de validation dans IOBEWI OTA ; l'EWBT/A-B, la validation d'image ESP,
-  l'accès flash, `otadata`, ConfigSpace/NVS, Wi-Fi, TLS et watchdog
-  ESP dans les crates `iobewi-esp-*`.
-- **Encore à extraire :** une partie de la gestion OTA, de son interface métier
-  et de l'orchestration de la flash se trouve dans `src/ota.rs` et
-  `src/http/api/ota_write.rs`. Les types ESP concrets et l'initialisation des
-  périphériques apparaissent encore dans le code de l'agent.
-- **Prochaine frontière :** IOBEWI OTA porte le parcours OTA complet ; les
-  adaptateurs implémentent ses capacités matérielles ; le firmware ESP ne
-  fait qu'assembler ces composants avec l'agent. Un adaptateur de test
-  indépendant de l'ESP servira à vérifier cette frontière avant un portage
-  RP2350 ou Teensy.
+- **IOBEWI OTA :** moteur transactionnel, métadonnées, session d'écriture,
+  reprise, préflight, réponses et téléversement HTTP en flux, réconciliation
+  au boot et validation bornée dans le temps.
+- **IOBEWI ESP :** flash, ConfigSpace/NVS, slots, EWBT, validation de l'image,
+  watchdog et redémarrage matériel.
+- **Agent :** identité et autorisation des requêtes, état applicatif,
+  vérifications préalables à la confirmation, injection de pannes de test,
+  montage des routes et composition du firmware ESP.
+
+Un adaptateur de test indépendant de l'ESP servira à vérifier le même service
+OTA avant un portage RP2350 ou Teensy. La compilation seule ne prouve pas
+encore ce portage ni la validation sur carte après cette migration.
 
 La branche [firmware-c](https://github.com/iobewi/embewi-agent/tree/firmware-c)
 conserve l'ancienne implémentation ESP-IDF/C comme référence fonctionnelle.
