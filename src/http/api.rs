@@ -25,7 +25,7 @@ use iobewi_esp_flash::SharedFlash;
 use super::{json_error, json_ok, reboot_after_delay, unauthorized};
 
 mod ota_write;
-use ota_write::OtaWrite;
+use ota_write::{AgentOtaBackend, OtaWrite};
 
 /// Plain `async fn`, not `#[embassy_executor::task]`: called from inside
 /// `http::run`'s own `if is_locked() {...} else {...}` (see that module's
@@ -184,18 +184,14 @@ pub async fn serve(
                 json_ok(serde_json::to_string(&resp).unwrap_or_default())
             }),
         )
-        .route("/v1alpha1/ota/write", put_service(OtaWrite { flash, ota_config, agent_config }))
+        .route("/v1alpha1/ota/write", put_service(OtaWrite { backend: AgentOtaBackend { flash, ota_config, agent_config } }))
         .route(
             "/v1alpha1/ota/activate",
             post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                #[derive(serde::Deserialize)]
-                struct ActivateBody {
-                    deployment_id: String,
-                }
-                let Ok(req) = serde_json::from_str::<ActivateBody>(&body) else {
+                let Ok(req) = serde_json::from_str::<iobewi_ota::http::ActivateRequest>(&body) else {
                     return json_error(StatusCode::BAD_REQUEST, "{\"error\":\"missing_deployment_id\"}");
                 };
                 let target_slot = match ota::activate(flash, ota_config, &req.deployment_id).await {
