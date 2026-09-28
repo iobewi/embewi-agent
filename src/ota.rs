@@ -34,9 +34,8 @@ use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
 use fibewi::embewi::{
     Metadata as OtaMetadata, Transaction as OtaTransaction,
-    PrepareRefusal, boot_action, check_compatibility, check_staged, check_target,
-    firmware_record, format_digest, parse_digest,
-    staged_from_transaction, transaction_from_staged,
+    MemoryTransactionMetadata, PrepareRefusal, boot_action, check_compatibility,
+    check_staged, check_target, firmware_record, format_digest, parse_digest,
 };
 pub use fibewi::embewi::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
 use espbewi_ota::{AppSlot, otadata};
@@ -88,20 +87,26 @@ const SELFCHECK_DEADLINE: Duration = Duration::from_secs(15);
 const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 
-async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
-    match space.load().await {
-        Ok(Some(snapshot)) => OtaMetadata::decode(&snapshot.data),
-        Ok(None) => Ok(OtaMetadata::default()),
-        Err(_) => Err(OtaMetadataError::Persistence),
+/// Bind FiBeWI's generic metadata store to this firmware's claimed
+/// ConfigSpace capability. The ESP NVS backend stays behind ConfigSpace.
+struct OtaStore<'a>(&'a OtaConfigSpace);
+
+impl fibewi::embewi::MetadataStore for OtaStore<'_> {
+    type Error = ();
+
+    async fn load_raw(&self) -> Result<Option<alloc::vec::Vec<u8>>, Self::Error> {
+        self.0.load().await
+            .map(|snapshot| snapshot.map(|snapshot| snapshot.data))
+            .map_err(|_| ())
+    }
+
+    async fn commit_raw(&self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.0.commit(bytes).await.map(|_| ()).map_err(|_| ())
     }
 }
 
-async fn save_metadata(space: &OtaConfigSpace, metadata: &OtaMetadata) -> Result<(), OtaMetadataError> {
-    let encoded = metadata.encode()?;
-    space.commit(&encoded)
-        .await
-        .map(|_| ())
-        .map_err(|_| OtaMetadataError::Persistence)
+async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
+    fibewi::embewi::load_metadata(&OtaStore(space)).await
 }
 
 pub async fn staged(space: &OtaConfigSpace) -> Staged {
@@ -114,59 +119,19 @@ pub async fn staged(space: &OtaConfigSpace) -> Staged {
     }
 }
 
-async fn save_staged(
-    space: &OtaConfigSpace,
-    stage: Stage,
-    slot: &str,
-    digest: &str,
-    deployment_id: &str,
-    size: u32,
-) -> Result<(), OtaMetadataError> {
-    let mut metadata = load_metadata(space).await?;
-    metadata.set_staged(Staged {
-        stage,
-        slot: String::from(slot),
-        digest: String::from(digest),
-        deployment_id: String::from(deployment_id),
-        size,
-    });
-    save_metadata(space, &metadata).await
-}
-
 pub async fn clear_staged(space: &OtaConfigSpace) -> Result<(), OtaMetadataError> {
-    save_staged(space, Stage::None, "", "", "", 0).await
-}
-
-struct MemoryTransactionMetadata {
-    record: Option<OtaTransaction>,
-}
-
-impl fibewi::TransactionMetadata for MemoryTransactionMetadata {
-    type Error = ();
-    type Record = OtaTransaction;
-
-    fn load(&mut self) -> Result<Option<Self::Record>, Self::Error> {
-        Ok(self.record.clone())
-    }
-
-    fn commit(&mut self, record: Option<&Self::Record>) -> Result<(), Self::Error> {
-        self.record = record.cloned();
-        Ok(())
-    }
+    fibewi::embewi::clear_staged(&OtaStore(space)).await
 }
 
 async fn load_transaction(space: &OtaConfigSpace) -> Result<Option<OtaTransaction>, OtaMetadataError> {
-    let metadata = load_metadata(space).await?;
-    Ok(transaction_from_staged(&metadata.staged))
+    fibewi::embewi::load_transaction(&OtaStore(space)).await
 }
 
 async fn commit_transaction(
     space: &OtaConfigSpace,
     record: Option<&OtaTransaction>,
 ) -> Result<(), OtaMetadataError> {
-    let mut metadata = load_metadata(space).await?;
-    metadata.set_staged(staged_from_transaction(record)?);
-    save_metadata(space, &metadata).await
+    fibewi::embewi::commit_transaction(&OtaStore(space), record).await
 }
 
 /// Digest of the currently-running, validated firmware.
@@ -558,9 +523,7 @@ pub enum ActivateError {
 /// ones. Idempotent, so an interrupted validation can be finished at the
 /// next boot ([`Action::FinishInterruptedActivation`]).
 async fn promote_staged(ota_config: &OtaConfigSpace, staged: &Staged) -> Result<(), OtaMetadataError> {
-    let mut metadata = load_metadata(ota_config).await?;
-    metadata.promote_staged(staged);
-    save_metadata(ota_config, &metadata).await
+    fibewi::embewi::promote_staged(&OtaStore(ota_config), staged).await
 }
 
 /// Promotes the staged record once the image is confirmed, then forgets it.
