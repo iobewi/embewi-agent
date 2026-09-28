@@ -147,6 +147,7 @@ espbewi-config-space = { git = "https://github.com/iobewi/espbewi", rev = "64b0e
 # Embassy client handshake and picoserve TLS socket. Application NVS/SNTP
 # policy remains in src/tls.rs.
 espbewi-tls = { git = "https://github.com/iobewi/espbewi", rev = "64b0e897c9ac653b5a6aa0e863088075ed6d6153", package = "espbewi-tls", features = ["esp32s3", "picoserve"] }
+iobewi-esp = { git = "https://github.com/iobewi/iobewi-esp", rev = "653f534caac433cc9bc99837156050b25820998e", features = ["esp32s3"] }
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

@@ -998,6 +998,7 @@ dependencies = [
  "heapless 0.9.3",
  "httparse",
  "improv-serial",
+ "iobewi-esp",
  "log",
  "picoserve",
  "serde",
@@ -2003,6 +2004,29 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "iobewi"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=aa43b72c395d82c56ea64cf19bc12ab8973b198f#aa43b72c395d82c56ea64cf19bc12ab8973b198f"
+dependencies = [
+ "log",
+ "picoserve",
+]
+
+[[package]]
+name = "iobewi-esp"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=653f534caac433cc9bc99837156050b25820998e#653f534caac433cc9bc99837156050b25820998e"
+dependencies = [
+ "embassy-net",
+ "embassy-time",
+ "esp-hal",
+ "espbewi-tls",
+ "iobewi",
+ "log",
+ "picoserve",
 ]
 
 [[package]]
