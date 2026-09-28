@@ -1,6 +1,6 @@
 //! Persistent Embewi device lifecycle.
 //!
-//! This is application policy. FiBeWI never interprets these states.
+//! This is application policy. IOBEWI OTA never interprets these states.
 
 use iobewi_config_space::{Budget, ConfigSpace};
 use iobewi_esp_config_space::NvsConfigBackend;
@@ -130,7 +130,7 @@ pub async fn ready_for_agent(
 }
 
 /// embewi-agent: called only after the first agent image has been confirmed
-/// by FiBeWI and all application prerequisites are valid.
+/// by IOBEWI OTA and all application prerequisites are valid.
 pub async fn production(
     space: &LifecycleConfigSpace,
 ) -> Result<(), LifecycleError> {

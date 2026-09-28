@@ -26,13 +26,13 @@ fn range_len(start: u32, end: u32) -> Option<u32> {
 
 /// Wire-format validation for X-Embewi-Digest.
 fn is_valid_digest(value: &str) -> bool {
-    fibewi::embewi::parse_digest(value).is_some()
+    iobewi_ota::metadata::parse_digest(value).is_some()
 }
 
 /// Parses Content-Range: bytes <start>-<end>/<total>.
 ///
 /// This is deliberately HTTP-local. Resume/session decisions themselves
-/// remain in FiBeWI; only the wire syntax belongs to this route.
+/// remain in IOBEWI OTA; only the wire syntax belongs to this route.
 fn parse_content_range(value: &str) -> Option<(u32, u32, u32)> {
     let value = value.strip_prefix("bytes ")?;
     let (range, total) = value.split_once('/')?;

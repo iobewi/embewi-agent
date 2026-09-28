@@ -23,18 +23,18 @@ extrait. Le paquet et le binaire portent encore le nom historique
 | --- | --- |
 | `embewi-agent` | Services applicatifs, identité, configuration, authentification et assemblage des capacités requises, sans dépendance à une puce. |
 | [IOBEWI HTTP](https://github.com/iobewi/iobewi) | Contrat et dispatch HTTP/TLS portables, implémentés par chaque plateforme. |
-| [FiBeWI](https://github.com/iobewi/fibewi) | Gestion OTA, états A/B, reprise, validation et interface métier OTA indépendantes du matériel. |
+| [IOBEWI OTA](https://github.com/iobewi/iobewi/tree/refactor/iobewi-ota/services/ota) | Gestion OTA, transactions, reprise, validation et métadonnées durables indépendantes du matériel. |
 | [IOBEWI ConfigSpace](https://github.com/iobewi/iobewi/tree/main/services/config-space) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
-| `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des contrats demandés par l'agent, FiBeWI et ConfigSpace. |
+| `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des services demandés par l'agent, IOBEWI OTA et ConfigSpace. |
 | Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
 
-FiBeWI et ConfigSpace définissent leurs interfaces et ne dépendent pas d'un
+IOBEWI OTA et ConfigSpace définissent leurs interfaces et ne dépendent pas d'un
 adaptateur ESP. `iobewi-esp` fournit leurs implémentations sur ESP : flash,
 partitions, boot, NVS, watchdog, Wi-Fi et TLS. Le choix de la plateforme est
 statique à la compilation ; chaque cible conserve sa toolchain, son linker,
 son plan de flash et son bootloader propres.
 
-L'interface métier OTA doit rejoindre FiBeWI. L'authentification et les routes applicatives de l'agent se branchent sur le
+L'authentification et les routes applicatives de l'agent se branchent sur le
 serveur `iobewi-http`. `iobewi-https` impose le handshake TLS.
 `iobewi-esp-https` fournit le listener ESP, `iobewi-esp-tls` porte MbedTLS.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
@@ -42,14 +42,15 @@ modifier la logique métier de l'agent.
 
 ## Migration en cours
 
-- **Déjà séparé :** le moteur de transactions et la logique EWBT/A-B dans
-  FiBeWI ; l'accès flash, `otadata`, ConfigSpace/NVS, Wi-Fi, TLS et watchdog
+- **Déjà séparé :** le moteur de transactions, ses métadonnées et la logique
+  de validation dans IOBEWI OTA ; l'EWBT/A-B, la validation d'image ESP,
+  l'accès flash, `otadata`, ConfigSpace/NVS, Wi-Fi, TLS et watchdog
   ESP dans les crates `iobewi-esp-*`.
 - **Encore à extraire :** une partie de la gestion OTA, de son interface métier
   et de l'orchestration de la flash se trouve dans `src/ota.rs` et
   `src/http/api/ota_write.rs`. Les types ESP concrets et l'initialisation des
   périphériques apparaissent encore dans le code de l'agent.
-- **Prochaine frontière :** FiBeWI porte le parcours OTA complet ; les
+- **Prochaine frontière :** IOBEWI OTA porte le parcours OTA complet ; les
   adaptateurs implémentent ses capacités matérielles ; le firmware ESP ne
   fait qu'assembler ces composants avec l'agent. Un adaptateur de test
   indépendant de l'ESP servira à vérifier cette frontière avant un portage
@@ -75,7 +76,7 @@ utilisé par la CI pour l'ESP32-S3 est :
 cargo +esp check --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
 ```
 
-Pour construire l'image flashable avec le bootloader ESP FiBeWI :
+Pour construire l'image flashable avec le bootloader iobewi-esp :
 
 ```sh
 scripts/build-boot.sh

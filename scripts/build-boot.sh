@@ -3,7 +3,7 @@
 #   ota_0 = disposable embewi-init
 #   ota_1 = preloaded embewi-agent
 # ESP Web Tools flashes both parts on a clean device. embewi-init verifies
-# ota_1 exact size/SHA-256 before staging/activating it through FiBeWI.
+# ota_1 exact size/SHA-256 before staging/activating it through IOBEWI OTA.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,7 +37,7 @@ echo "== factory base image (bootloader + partitions + embewi-init in ota_0)"
 espflash save-image "${FLASH_ARGS[@]}" --merge --skip-padding     --bootloader "$BOOT_BIN"     --partition-table partitions.csv     "target/${TARGET}/release/embewi-init" "$FACTORY"
 
 # otadata intentionally remains blank in the factory image. The iobewi-esp
-# bootloader executes FiBeWI lifecycle semantics, owns runtime boot state,
+# bootloader executes the ESP EWBT lifecycle semantics, owns runtime boot state,
 # and bootstraps ota_0 as Valid(seq=1) on first boot.
 # ESP Web Tools adds AGENT_BIN separately at ota_1 (0x1a0000).
 rm -f "$OUT_DIR/otadata.bin"
