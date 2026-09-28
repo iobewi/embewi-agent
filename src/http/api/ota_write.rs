@@ -26,9 +26,7 @@ fn range_len(start: u32, end: u32) -> Option<u32> {
 
 /// Wire-format validation for X-Embewi-Digest.
 fn is_valid_digest(value: &str) -> bool {
-    value
-        .strip_prefix("sha256:")
-        .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+    fibewi::embewi::parse_digest(value).is_some()
 }
 
 /// Parses Content-Range: bytes <start>-<end>/<total>.

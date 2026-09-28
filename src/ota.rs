@@ -26,11 +26,9 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
-use embedded_storage::nor_flash::ReadNorFlash;
 use config_space_manager::{Budget, ConfigSpace};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 
 use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
@@ -214,30 +212,11 @@ pub async fn stage_preloaded_agent(
 ) -> Result<&'static str, PreloadedAgentError> {
     let expected = parse_digest(image.digest).ok_or(PreloadedAgentError::BadDigest)?;
 
-    let (target, computed) = {
-        let mut guard = flash.lock().await;
-        let target = platform_ota::write_target_locked(&mut guard).map_err(|_| PreloadedAgentError::NoTarget)?;
-        if image.size as usize > target.size {
-            return Err(PreloadedAgentError::TooLarge);
-        }
-
-        let mut hasher = Sha256::new();
-        let mut buf = [0u8; 4096];
-        let mut offset = 0u32;
-        while offset < image.size {
-            let remaining = (image.size - offset) as usize;
-            let take = remaining.min(buf.len());
-            ReadNorFlash::read(
-                guard.storage(),
-                target.offset + offset,
-                &mut buf[..take],
-            )
-            .map_err(|_| PreloadedAgentError::Flash)?;
-            hasher.update(&buf[..take]);
-            offset += take as u32;
-        }
-        (target, fibewi::Digest(hasher.finalize().into()))
-    };
+    let (slot, computed) = platform_ota::hash_preloaded(flash, image.size).await.map_err(|e| match e {
+        platform_ota::PreloadedError::NoTarget => PreloadedAgentError::NoTarget,
+        platform_ota::PreloadedError::TooLarge => PreloadedAgentError::TooLarge,
+        platform_ota::PreloadedError::Flash => PreloadedAgentError::Flash,
+    })?;
 
     if computed != expected {
         return Err(PreloadedAgentError::DigestMismatch);
@@ -245,13 +224,13 @@ pub async fn stage_preloaded_agent(
 
     let record = firmware_record(
         String::from(image.deployment_id), u64::from(image.size),
-        expected, String::from(target.slot.as_str()),
+        expected, String::from(slot.as_str()),
     );
     commit_transaction(ota_config, Some(&record))
         .await
         .map_err(PreloadedAgentError::Metadata)?;
 
-    Ok(target.slot.as_str())
+    Ok(slot.as_str())
 }
 
 /// `POST /v1alpha1/ota/prepare` request body (contrat §4). `artifact` and
