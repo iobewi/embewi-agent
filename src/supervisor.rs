@@ -107,7 +107,12 @@ impl ApplicationSupervisor {
                 self.tls,
             ).unwrap());
 
-        self.spawner.spawn(crate::time::sync_task(stack).unwrap());
+        self.spawner.spawn(crate::time::sync_task(stack, crate::time::SyncOptions {
+            server: "pool.ntp.org",
+            resync_period: embassy_time::Duration::from_secs(3600),
+            retry_period: embassy_time::Duration::from_secs(15),
+            plausible_epoch_floor: 1_700_000_000,
+        }).unwrap());
         self.spawner
             .spawn(crate::heartbeat::run(
                 stack,
