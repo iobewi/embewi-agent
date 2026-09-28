@@ -1,17 +1,18 @@
 //! Embewi's OTA adapter (contrat §3/§4/§6): the Core streams a raw `.bin`
 //! into whichever `ota_0`/`ota_1` slot isn't currently booted.
 //!
-//! FiBeWI owns the transaction and EWBT state machines. `iobewi-esp-ota`
-//! locates ESP partitions, executes EWBT flash writes with readback, and
-//! provides the NOR-flash artifact backend. FiBeWI owns the OTA metadata
-//! schema and business decisions; here the application binds ConfigSpace,
+//! IOBEWI OTA owns the transaction state machine and the OTA metadata schema.
+//! `iobewi-esp-ota-boot` owns the EWBT boot state machine and ESP image
+//! validation. `iobewi-esp-ota` locates ESP partitions, executes EWBT flash
+//! writes with readback and provides the NOR-flash artifact backend. Here the
+//! application binds ConfigSpace,
 //! the HTTP transport, watchdog policy and self-check gate.
 //!
 //! Mirrors `firmware-c`'s `embewi_ota.c`/`embewi_selfcheck.c` state machine
 //! (same `stage`/`slot`/`digest`/`deployment_id`/`size` staged-NVS layout),
 //! reimplemented against embassy tasks instead of ESP-IDF's C one and
 //! FreeRTOS tasks -- the resume-decision and reconciliation *logic* itself
-//! now lives in `fibewi`, not reimplemented here.
+//! now lives in `iobewi-ota`, not reimplemented here.
 //!
 //! Staged state is persisted to NVS (not just kept in RAM) because, unlike
 //! a Core restart, the reconcile in contrat §6 also has to survive *this*
@@ -31,14 +32,14 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::agent;
-use fibewi::{Action, BackendOutcome, TransactionState};
-use fibewi::embewi::{
+use iobewi_ota::{Action, BackendOutcome, TransactionState};
+use iobewi_ota::metadata::{
     Metadata as OtaMetadata, Transaction as OtaTransaction,
     MemoryTransactionMetadata, PrepareRefusal, boot_action, check_compatibility,
     check_staged, check_target, firmware_record, format_digest, parse_digest,
     pending_check_action, FinishValidationError, PendingCheckAction,
 };
-pub use fibewi::embewi::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
+pub use iobewi_ota::metadata::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
 use iobewi_esp_ota::{AppSlot, otadata};
 use iobewi_esp_ota::shared_flash as platform_ota;
 
@@ -77,7 +78,7 @@ pub enum PreloadedAgentError {
 /// device forces its own reset -- unconfirmed past this, the bootloader's
 /// own rollback takes over on the next boot. Same value `firmware-c` uses
 /// (`EMBEWI_PENDING_DEADLINE_MS`).
-const SELFCHECK_DEADLINE: Duration = Duration::from_millis(fibewi::embewi::PENDING_VERIFY_TIMEOUT_MS);
+const SELFCHECK_DEADLINE: Duration = Duration::from_millis(iobewi_ota::metadata::PENDING_VERIFY_TIMEOUT_MS);
 /// How long the anti-freeze watchdog (see [`arm_boot_watchdog`]) gets before
 /// it force-resets the device. Longer than `SELFCHECK_DEADLINE` so the
 /// graceful, logged software timeout in `selfcheck_task` fires first in the
@@ -88,11 +89,11 @@ const SELFCHECK_DEADLINE: Duration = Duration::from_millis(fibewi::embewi::PENDI
 const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 
-/// Bind FiBeWI's generic metadata store to this firmware's claimed
+/// Bind IOBEWI OTA's generic metadata store to this firmware's claimed
 /// ConfigSpace capability. The ESP NVS backend stays behind ConfigSpace.
 struct OtaStore<'a>(&'a OtaConfigSpace);
 
-impl fibewi::embewi::MetadataStore for OtaStore<'_> {
+impl iobewi_ota::metadata::MetadataStore for OtaStore<'_> {
     type Error = ();
 
     async fn load_raw(&self) -> Result<Option<alloc::vec::Vec<u8>>, Self::Error> {
@@ -107,7 +108,7 @@ impl fibewi::embewi::MetadataStore for OtaStore<'_> {
 }
 
 async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
-    fibewi::embewi::load_metadata(&OtaStore(space)).await
+    iobewi_ota::metadata::load_metadata(&OtaStore(space)).await
 }
 
 pub async fn staged(space: &OtaConfigSpace) -> Staged {
@@ -121,18 +122,18 @@ pub async fn staged(space: &OtaConfigSpace) -> Staged {
 }
 
 pub async fn clear_staged(space: &OtaConfigSpace) -> Result<(), OtaMetadataError> {
-    fibewi::embewi::clear_staged(&OtaStore(space)).await
+    iobewi_ota::metadata::clear_staged(&OtaStore(space)).await
 }
 
 async fn load_transaction(space: &OtaConfigSpace) -> Result<Option<OtaTransaction>, OtaMetadataError> {
-    fibewi::embewi::load_transaction(&OtaStore(space)).await
+    iobewi_ota::metadata::load_transaction(&OtaStore(space)).await
 }
 
 async fn commit_transaction(
     space: &OtaConfigSpace,
     record: Option<&OtaTransaction>,
 ) -> Result<(), OtaMetadataError> {
-    fibewi::embewi::commit_transaction(&OtaStore(space), record).await
+    iobewi_ota::metadata::commit_transaction(&OtaStore(space), record).await
 }
 
 /// Digest of the currently-running, validated firmware.
@@ -169,7 +170,7 @@ pub async fn boot_info(flash: &SharedFlash) -> BootEntry {
 }
 
 /// Verifies the already-programmed inactive slot and publishes it as a
-/// normal FiBeWI staged transaction. No alternate OTA/write path exists:
+/// normal IOBEWI OTA staged transaction. No alternate OTA/write path exists:
 /// factory flashing merely placed the bytes there ahead of time.
 pub async fn stage_preloaded_agent(
     flash: &SharedFlash,
@@ -264,9 +265,9 @@ struct WriteSession {
     /// The ESP backend owns partition geometry and erase/program bookkeeping.
     writer: platform_ota::ArtifactWriter,
     /// The generic engine: received/durable byte counts, the undurable
-    /// tail, and the streaming digest -- see `fibewi::artifact`'s own
+    /// tail, and the streaming digest -- see `iobewi_ota::artifact`'s own
     /// doc comment. Everything sector-shaped lives in `iobewi-esp-ota`.
-    engine: fibewi::WriteSession,
+    engine: iobewi_ota::WriteSession,
     /// When `write_begin` opened this session -- purely diagnostic, logged
     /// by `write_finish` (contrat §4's own `written`/digest reply carries
     /// no timing field).
@@ -284,7 +285,7 @@ pub async fn write_in_progress() -> bool {
     WRITE_SESSION.lock().await.is_some()
 }
 
-/// Bytes durably on flash -- see `fibewi::WriteSession::durable`'s own
+/// Bytes durably on flash -- see `iobewi_ota::WriteSession::durable`'s own
 /// doc comment. This is what the JSON `written` field reports to the
 /// client: the point it's safe to resume *after a dropped connection* from.
 pub async fn write_written() -> u32 {
@@ -305,19 +306,19 @@ pub async fn write_received() -> u32 {
 
 /// `PUT /v1alpha1/ota/write`'s resume decision itself (contrat §4's
 /// `Content-Range` protocol, decoupled from `Content-Range`'s own wire
-/// format) is `fibewi::resume_plan`/`fibewi::is_complete` --
+/// format) is `iobewi_ota::resume_plan`/`iobewi_ota::is_complete` --
 /// generic, `no_std`, host-tested in that crate. These two functions are
 /// thin `u32`-to-`u64` adapters so callers keep writing `ota::Plan`/
 /// `ota::write_plan`/`ota::write_is_final` unchanged; nothing about the
 /// decision itself lives here anymore.
-pub use fibewi::ResumePlan as Plan;
+pub use iobewi_ota::ResumePlan as Plan;
 
 pub fn write_plan(has_range: bool, start: u32, in_progress: bool, written: u32) -> Plan {
-    fibewi::resume_plan(has_range, u64::from(start), in_progress, u64::from(written))
+    iobewi_ota::resume_plan(has_range, u64::from(start), in_progress, u64::from(written))
 }
 
 pub fn write_is_final(has_range: bool, end: u32, total: u32) -> bool {
-    fibewi::is_complete(has_range, u64::from(end), u64::from(total))
+    iobewi_ota::is_complete(has_range, u64::from(end), u64::from(total))
 }
 
 /// Whether a continuing PUT carries the same `deployment_id`, digest and
@@ -374,7 +375,7 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
 
     match load_transaction(ota_config).await.map_err(BeginError::Storage)? {
         None => {}
-        Some(record) if fibewi::embewi::can_supersede(Some(&record)) => {
+        Some(record) if iobewi_ota::metadata::can_supersede(Some(&record)) => {
             commit_transaction(ota_config, None)
                 .await
                 .map_err(BeginError::Storage)?;
@@ -384,14 +385,14 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
 
     *WRITE_SESSION.lock().await = Some(WriteSession {
         writer: platform_ota::ArtifactWriter::new(target),
-        engine: fibewi::WriteSession::begin(u64::from(params.total), expected_digest),
+        engine: iobewi_ota::WriteSession::begin(u64::from(params.total), expected_digest),
         started_at: Instant::now(),
         params,
     });
     Ok(())
 }
 
-/// Appends bytes through the ESP writer. FiBeWI tracks digest and durable
+/// Appends bytes through the ESP writer. IOBEWI OTA tracks digest and durable
 /// progress; iobewi-esp-ota owns sector erase and flash programming.
 pub async fn write_chunk(flash: &SharedFlash, data: &[u8]) -> bool {
     let mut session_guard = WRITE_SESSION.lock().await;
@@ -429,11 +430,11 @@ pub async fn write_finish(flash: &SharedFlash, ota_config: &OtaConfigSpace) -> R
     let slot = writer.slot();
     let committed = match writer.finish(flash, engine).await {
         Ok(committed) => committed,
-        Err(fibewi::Error::DigestMismatch(computed)) => {
+        Err(iobewi_ota::Error::DigestMismatch(computed)) => {
             warn!("ota: digest mismatch, attendu={} calculé={}", params.digest, format_digest(&computed));
             return Err(WriteFinishError::DigestMismatch);
         }
-        Err(fibewi::Error::Incomplete { durable }) => {
+        Err(iobewi_ota::Error::Incomplete { durable }) => {
             warn!("ota: session ended at {durable} of {} octets", params.total);
             return Err(WriteFinishError::Incomplete);
         }
@@ -474,7 +475,7 @@ pub async fn write_finish(flash: &SharedFlash, ota_config: &OtaConfigSpace) -> R
 pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployment_id: &str) -> Result<&'static str, ActivateError> {
     // Record the intent first: if ConfigSpace persistence refuses it, nothing has changed yet
     // and the caller gets an error instead of a reboot into a slot whose
-    // staged record disagrees with `otadata`. `fibewi::activate` checks
+    // staged record disagrees with `otadata`. `iobewi_ota::activate` checks
     // `Staged` + identity (against the *transaction's* id, i.e.
     // `deployment_id` -- never an artifact's own id) and durably commits
     // the transition to `Activating` before returning.
@@ -487,15 +488,15 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
         .and_then(|artifact| AppSlot::from_name(&artifact.target))
         .ok_or(ActivateError::NotStaged)?;
     let mut meta = MemoryTransactionMetadata { record: current };
-    let activating = fibewi::activate(&mut meta, &String::from(deployment_id)).map_err(|e| match e {
-        fibewi::Error::NotStaged => ActivateError::NotStaged,
-        fibewi::Error::IdentityMismatch => ActivateError::DeploymentMismatch,
+    let activating = iobewi_ota::activate(&mut meta, &String::from(deployment_id)).map_err(|e| match e {
+        iobewi_ota::Error::NotStaged => ActivateError::NotStaged,
+        iobewi_ota::Error::IdentityMismatch => ActivateError::DeploymentMismatch,
         _ => ActivateError::NotStaged,
     })?;
     commit_transaction(ota_config, meta.record.as_ref())
         .await
         .map_err(ActivateError::Storage)?;
-    // `fibewi::activate` already refused an empty artifact list.
+    // `iobewi_ota::activate` already refused an empty artifact list.
     let ok = platform_ota::activate(flash, slot).await.is_ok();
     if !ok {
         // Best effort: back to `Staged` so a retry of `activate` is possible.
@@ -520,13 +521,13 @@ pub enum ActivateError {
     Storage(OtaMetadataError),
 }
 
-/// Persists FiBeWI's validation result after the image is confirmed.
+/// Persists IOBEWI OTA's validation result after the image is confirmed.
 /// If a write fails the `activating` record is kept and the agent goes
 /// `Degraded`: the image is valid and stays so (never rolled back over
 /// bookkeeping), and the next boot -- bootloader `Valid`, same slot, still
 /// `activating` -- completes this promotion.
 async fn finish_validation(ota_config: &OtaConfigSpace, staged: &Staged) {
-    match fibewi::embewi::finish_validation(&OtaStore(ota_config), staged).await {
+    match iobewi_ota::metadata::finish_validation(&OtaStore(ota_config), staged).await {
         Ok(()) => {
             agent::set_state(agent::State::Running);
             info!("ota: validation done (deployment_id={})", staged.deployment_id);
@@ -619,7 +620,7 @@ fn disable_boot_watchdog() {
     iobewi_esp_watchdog::disable();
 }
 
-/// Runs the existing bounded FiBeWI/ESP confirmation gate after the caller
+/// Runs the existing bounded IOBEWI OTA/ESP confirmation gate after the caller
 /// has decided that its own application prerequisites are satisfied.
 pub async fn confirm_pending(
     flash: &'static SharedFlash,
@@ -680,7 +681,7 @@ pub async fn confirm_pending(
 
 /// Called once at boot (`src/bin/main.rs`): reconciles the persisted staged
 /// record with what the bootloader actually booted (contrat §3's "cœur dur
-/// du projet"). The decision itself is [`fibewi::embewi::boot_action`], a pure
+/// du projet"). The decision itself is [`iobewi_ota::metadata::boot_action`], a pure
 /// table host-tested in that crate; this only gathers its inputs and
 /// applies the outcome. This is the only place `agent::State` is driven
 /// from `Booting`.
@@ -706,7 +707,7 @@ pub async fn on_boot(
             agent::set_state(agent::State::PendingVerify);
             warn!("ota: image is PENDING_VERIFY, application confirmation required");
             // The application decides when it is safe to call confirm_pending.
-            // FiBeWI knows nothing about those application prerequisites.
+            // IOBEWI OTA knows nothing about those application prerequisites.
             feed_boot_watchdog();
             return BootDisposition::PendingVerify;
         }
@@ -732,7 +733,7 @@ pub async fn on_boot(
                 return BootDisposition::Stable;
             }
         }
-        // `Action` is `#[non_exhaustive]`: fibewi is not at a stable API
+        // `Action` is `#[non_exhaustive]`: iobewi-ota is not at a stable API
         // yet, and a future variant must not silently fall into one of the
         // arms above. Nothing destructive on an outcome this build doesn't
         // recognize -- same policy as `running_matches_staged: None`.

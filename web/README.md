@@ -42,15 +42,15 @@ Wi-Fi (voir `src/http/`), pas depuis cette page statique. Après une
 connexion Wi-Fi réussie via Improv, un bouton « Visit Device » apparaît
 directement dans la fenêtre d'ESP Web Tools et y mène.
 
-## Image avec le bootloader ESP FiBeWI
+## Image avec le bootloader iobewi-esp
 
 ```sh
 scripts/build-boot.sh     # -> web/firmware/esp32c3/{firmware,app}.bin
 ```
 
-`firmware.bin` est l'image mergée (FiBeWI ESP bootloader + table de partitions + agent)
+`firmware.bin` est l'image mergée (iobewi-esp-bootloader + table de partitions + agent)
 servie par `index.html` / `manifest.json`. `otadata` y est **vierge** : c'est
-`FiBeWI ESP bootloader` qui l'initialise au premier boot (il valide `ota_0`, écrit
+`iobewi-esp-bootloader` qui l'initialise au premier boot (il valide `ota_0`, écrit
 `Valid(seq=1)` en relisant chaque étape, puis boote). `app.bin` (image
 applicative seule) alimente `recover.html`.
 

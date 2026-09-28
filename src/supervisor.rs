@@ -1,7 +1,7 @@
 //! Application service supervisors.
 //!
 //! Runtime and one-shot provisioning are deliberately different owners.
-//! Neither transport manager nor FiBeWI knows application service policy.
+//! Neither transport manager nor IOBEWI OTA knows application service policy.
 
 use embassy_executor::Spawner;
 use embassy_net::Stack;

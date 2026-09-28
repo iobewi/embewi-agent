@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IOBEWI_ESP_REV="8ed077cc64ea7f0cbf0aa8b44818ec4ff0c6c273"
+IOBEWI_ESP_REV="394a26e5cf84aa47b4095ac0a6f200414d5aec18"
 CHECKOUT="$ROOT/target/iobewi-esp-bootloader-src"
 CHIP=esp32s3
 TARGET=xtensa-esp32s3-none-elf

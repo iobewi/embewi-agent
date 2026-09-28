@@ -2,7 +2,7 @@
 //!
 //! This router is not linked into the normal runtime path. It writes the
 //! durable application configuration, verifies the preloaded first agent,
-//! moves the Embewi lifecycle to ReadyForAgent, asks FiBeWI to activate the
+//! moves the Embewi lifecycle to ReadyForAgent, asks IOBEWI OTA to activate the
 //! staged image, and reboots. The transport beneath it is always TLS.
 
 use alloc::format;

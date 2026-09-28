@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) -> ! {
     embewi_agent_esp::ota::arm_boot_watchdog();
 
     // The physical flash has one process-wide owner. ConfigSpace/NVS and
-    // FiBeWI share only this serialized hardware capability.
+    // IOBEWI OTA share only this serialized hardware capability.
     let flash = iobewi_esp_flash::init(peripherals.FLASH);
 
     // Components claim isolated persistent configuration capabilities at
@@ -181,7 +181,7 @@ async fn main(spawner: Spawner) -> ! {
         spawner.spawn(status::led_task(peripherals.RMT, led_pin).unwrap());
     }
 
-    // FiBeWI only reports the boot disposition here. Application policy
+    // IOBEWI OTA only reports the boot disposition here. Application policy
     // below decides whether this image is fit to be confirmed.
     let boot = embewi_agent_esp::ota::on_boot(
         flash,
@@ -221,7 +221,7 @@ async fn main(spawner: Spawner) -> ! {
                 )
                 .await;
             }
-            // If power failed after FiBeWI confirmation but before this small
+            // If power failed after IOBEWI OTA confirmation but before this small
             // application bookkeeping write, the next boot reaches this same
             // Stable + ReadyForAgent path and completes it idempotently.
             embewi_agent_esp::lifecycle::production(lifecycle_config)
