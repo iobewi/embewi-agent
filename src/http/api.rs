@@ -14,7 +14,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use esp_hal::peripherals::LPWR;
 use picoserve::response::StatusCode;
-use iobewi_http::routing::{get, post, put_service};
+use iobewi_http::routing::{get, post};
 use iobewi_http::HttpRouter;
 use static_cell::StaticCell;
 
@@ -26,10 +26,28 @@ use iobewi_esp_flash::SharedFlash;
 use super::{json_error, json_ok, reboot_after_delay, unauthorized};
 
 mod ota_write;
-use ota_write::{AgentOtaBackend, OtaWrite};
+use ota_write::AgentOtaBackend;
 
 /// Public API namespace selected by EmBewi, independent of service routes.
 const API_PREFIX: &str = "/v1alpha1";
+
+type RebootCell = Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>;
+
+#[derive(Clone)]
+struct AgentOtaReboot {
+    cell: &'static RebootCell,
+    spawner: Spawner,
+}
+
+impl iobewi_ota::http::RebootPort for AgentOtaReboot {
+    async fn schedule_reboot(&self) {
+        if let Some(lpwr) = self.cell.lock().await.take()
+            && let Ok(spawn_token) = reboot_after_delay(lpwr)
+        {
+            self.spawner.spawn(spawn_token);
+        }
+    }
+}
 
 /// Application authorization and ESP persistence ports for the portable TLS API.
 struct AgentTlsProvisioningBackend {
@@ -192,39 +210,12 @@ pub async fn serve(
                 ))
             }),
         )
-        // OTA A/B (contrat §3/§4/§6): the portable OTA service owns the
-        // HTTP contract, while the agent provides authorization and reboot.
-        .route(
-            "/ota/prepare",
-            post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
-                    return unauthorized();
-                }
-                let backend = AgentOtaBackend { flash, ota_config, agent_config };
-                iobewi_ota::http::prepare_response(&backend, &body).await
-            }),
-        )
-        .route("/ota/write", put_service(OtaWrite { backend: AgentOtaBackend { flash, ota_config, agent_config } }))
-        .route(
-            "/ota/activate",
-            post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
-                    return unauthorized();
-                }
-                let backend = AgentOtaBackend { flash, ota_config, agent_config };
-                let (response, reboot) = iobewi_ota::http::activate_response(&backend, &body).await;
-                // Same one-shot `lpwr_cell` as `/reboot` above -- there's
-                // only one `lpwr` to hand out, whichever fires first wins.
-                if reboot {
-                    if let Some(lpwr) = lpwr_cell.lock().await.take()
-                        && let Ok(spawn_token) = reboot_after_delay(lpwr)
-                    {
-                        spawner.spawn(spawn_token);
-                    }
-                }
-                response
-            }),
-        )
+        // OTA owns its relative routes. EmBewi supplies only the platform
+        // backend and the same one-shot reboot peripheral used by /reboot.
+        .nest("/ota", iobewi_ota::http::routes(
+            AgentOtaBackend { flash, ota_config, agent_config },
+            AgentOtaReboot { cell: lpwr_cell, spawner },
+        ))
         // The TLS service owns authentication and the wire contract; the
         // application only mounts its routes on the shared HTTPS server.
         .route(

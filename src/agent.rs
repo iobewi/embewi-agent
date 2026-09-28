@@ -6,13 +6,10 @@
 
 use alloc::format;
 use alloc::string::String;
-use core::convert::Infallible;
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use iobewi_config_space::{Budget, ConfigSpace};
-use picoserve::extract::FromRequestParts;
-use picoserve::request::RequestParts;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 
@@ -182,28 +179,8 @@ pub async fn save_identity(
     Ok(())
 }
 
-/// Extracts the raw Bearer token from the `Authorization` header, if any
-/// (every inbound endpoint requires `Authorization: Bearer <token>`,
-/// contrat §4). Never fails to extract: an absent/malformed header just
-/// yields `None`, and [`is_authorized`] correctly refuses that.
-pub struct Bearer(pub Option<String>);
-
-impl<'r, State> FromRequestParts<'r, State> for Bearer {
-    type Rejection = Infallible;
-
-    async fn from_request_parts(
-        _state: &'r State,
-        request_parts: &RequestParts<'r>,
-    ) -> Result<Self, Self::Rejection> {
-        let token = request_parts
-            .headers()
-            .get("authorization")
-            .and_then(|value| value.as_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .map(String::from);
-        Ok(Bearer(token))
-    }
-}
+/// Common HTTP extractor; EmBewi applies its own constant-time token policy.
+pub use iobewi_http::auth::Bearer;
 
 /// Whether `presented` matches the stored Bearer token, compared in
 /// constant time (contrat §1: "pas de fuite du token octet par octet").
