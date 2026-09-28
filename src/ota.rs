@@ -26,7 +26,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::ReadNorFlash;
 use config_space_manager::{Budget, ConfigSpace};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
@@ -40,9 +40,10 @@ use fibewi::embewi::{
 };
 pub use fibewi::embewi::{MetadataError as OtaMetadataError, Stage, Staged};
 use espbewi_ota::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, otadata};
+use espbewi_ota::shared_flash as platform_ota;
 
 use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::{EspFlash, SharedFlash};
+use espbewi_flash::SharedFlash;
 
 /// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
 /// this exactly, or the write is refused before a single byte transfers.
@@ -86,32 +87,6 @@ const SELFCHECK_DEADLINE: Duration = Duration::from_secs(15);
 /// software deadline (which depends on that same executor) can catch.
 const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
-
-/// Keep the partition-table scratch area off the Embassy task stack.
-fn table_buffer() -> Box<otadata::TableBuffer> {
-    Box::new([0u8; espbewi_ota::PARTITION_TABLE_BUFFER_SIZE])
-}
-
-// Each operation holds the shared physical flash lock only while using it.
-// ConfigSpace takes the same non-reentrant lock, so its calls stay outside.
-fn write_target_locked(flash: &mut EspFlash) -> Option<AppPartition> {
-    otadata::write_target(flash.storage(), &mut table_buffer()).ok()
-}
-
-async fn otadata_confirm(flash: &SharedFlash) -> Result<(), otadata::Error> {
-    let mut guard = flash.lock().await;
-    otadata::confirm(guard.storage(), &mut table_buffer())
-}
-
-async fn otadata_reject(flash: &SharedFlash) -> Result<(), otadata::Error> {
-    let mut guard = flash.lock().await;
-    otadata::reject(guard.storage(), &mut table_buffer())
-}
-
-async fn otadata_activate(flash: &SharedFlash, target: AppSlot) -> Result<(), otadata::Error> {
-    let mut guard = flash.lock().await;
-    otadata::activate(guard.storage(), &mut table_buffer(), target)
-}
 
 async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
     match space.load().await {
@@ -213,30 +188,18 @@ pub async fn active_deployment_id(space: &OtaConfigSpace) -> String {
 /// The partition actually booted, which can differ from the latest EWBT
 /// entry after a fallback from an image with an invalid app header.
 pub async fn active_slot(flash: &SharedFlash) -> String {
-    let mut guard = flash.lock().await;
-    let mut scratch = table_buffer();
-    otadata::booted_slot(guard.storage(), &mut scratch)
-        .map(String::from)
-        .unwrap_or_default()
+    String::from(platform_ota::active_slot(flash).await)
 }
 
 async fn current_ota_image(flash: &SharedFlash) -> BackendOutcome {
-    let mut guard = flash.lock().await;
-    otadata::read_entries(guard.storage(), &mut table_buffer())
-        .map(|entries| otadata::image_outcome(&entries))
-        .unwrap_or(BackendOutcome::Other)
+    platform_ota::image_outcome(flash).await
 }
 
 pub type BootEntry = otadata::BootEntry;
 
 /// Raw bootloader state, independent of the agent's own status.
 pub async fn boot_info(flash: &SharedFlash) -> BootEntry {
-    const UNKNOWN: BootEntry = BootEntry { slot: "", seq: 0, state: "unknown" };
-    let mut guard = flash.lock().await;
-    otadata::read_entries(guard.storage(), &mut table_buffer())
-        .ok()
-        .and_then(|entries| otadata::boot_entry(&entries))
-        .unwrap_or(UNKNOWN)
+    platform_ota::boot_info(flash).await
 }
 
 /// Verifies the already-programmed inactive slot and publishes it as a
@@ -251,7 +214,7 @@ pub async fn stage_preloaded_agent(
 
     let (target, computed) = {
         let mut guard = flash.lock().await;
-        let target = write_target_locked(&mut guard).ok_or(PreloadedAgentError::NoTarget)?;
+        let target = platform_ota::write_target_locked(&mut guard).map_err(|_| PreloadedAgentError::NoTarget)?;
         if image.size as usize > target.size {
             return Err(PreloadedAgentError::TooLarge);
         }
@@ -331,11 +294,7 @@ pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &Pre
     // The guard must be released before `load_transaction` below: ConfigSpace
     // reads take this same (non-reentrant) `SharedFlash` mutex through the NVS
     // backend, so holding it across that call deadlocks the request.
-    let target = {
-        let mut flash_guard = flash.lock().await;
-        write_target_locked(&mut flash_guard)
-    };
-    let Some(target) = target else {
+    let Ok(target) = platform_ota::write_target(flash).await else {
         return refuse("busy");
     };
     if req.size as usize > target.size {
@@ -356,7 +315,7 @@ pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &Pre
 /// Physical erase-block size used only for diagnostics and scratch allocation.
 /// The actual erase/write mechanics and bounds checks live in `espbewi-ota`.
 fn ota_erase_size() -> usize {
-    <EspFlash as NorFlash>::ERASE_SIZE
+    platform_ota::erase_size()
 }
 
 /**
@@ -368,7 +327,7 @@ fn ota_erase_size() -> usize {
  * fibewi's durable watermark still advance every 4 KiB.
  */
 fn ota_erase_batch_size() -> u64 {
-    64 * 1024
+    platform_ota::erase_batch_size()
 }
 
 /// In-RAM write session (see the module doc comment for why this doesn't
@@ -507,10 +466,7 @@ pub enum BeginError {
 /// intact. An `Activating` transaction is refused outright: it is already
 /// handed to the backend and racing a reboot into it. This is what makes
 pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, params: SessionParams) -> Result<(), BeginError> {
-    let target = {
-        let mut flash_guard = flash.lock().await;
-        write_target_locked(&mut flash_guard).ok_or(BeginError::Busy)?
-    };
+    let target = platform_ota::write_target(flash).await.map_err(|_| BeginError::Busy)?;
     if params.total as usize > target.size {
         return Err(BeginError::TooLarge);
     }
@@ -732,11 +688,7 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
     // Reject a stale or unknown platform target before persisting Activating.
     let slot = current.as_ref()
         .and_then(|record| record.artifacts.first())
-        .and_then(|artifact| match artifact.target.as_str() {
-            "ota_0" => Some(AppSlot::Ota0),
-            "ota_1" => Some(AppSlot::Ota1),
-            _ => None,
-        })
+        .and_then(|artifact| AppSlot::from_name(&artifact.target))
         .ok_or(ActivateError::NotStaged)?;
     let mut meta = MemoryTransactionMetadata { record: current };
     let activating = fibewi::activate(&mut meta, &String::from(deployment_id)).map_err(|e| match e {
@@ -748,7 +700,7 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
         .await
         .map_err(ActivateError::Storage)?;
     // `fibewi::activate` already refused an empty artifact list.
-    let ok = otadata_activate(flash, slot).await.is_ok();
+    let ok = platform_ota::activate(flash, slot).await.is_ok();
     if !ok {
         // Best effort: back to `Staged` so a retry of `activate` is possible.
         let reverted = activating.with_state(TransactionState::Staged);
@@ -806,7 +758,7 @@ async fn finish_validation(ota_config: &OtaConfigSpace, staged: &Staged) {
 /// (contrat §3: "mark_valid n'est appelé QUE si tous les checks passent").
 async fn mark_valid(flash: &'static SharedFlash, ota_config: &'static OtaConfigSpace) {
     let staged = staged(ota_config).await;
-    if let Err(e) = otadata_confirm(flash).await {
+    if let Err(e) = platform_ota::confirm(flash).await {
         // Couldn't even record validation -- don't claim `running` over an
         // image `embewi-boot` doesn't agree is confirmed.
         warn!("ota: couldn't confirm the running image (code {}), rolling back", e as u8);
@@ -827,7 +779,7 @@ async fn mark_valid(flash: &'static SharedFlash, ota_config: &'static OtaConfigS
 /// `Aborted` on the next boot) and falls back to the previous slot on its
 /// own; this agent doesn't drive that part.
 async fn mark_invalid_and_reboot(flash: &'static SharedFlash) -> ! {
-    if let Err(e) = otadata_reject(flash).await {
+    if let Err(e) = platform_ota::reject(flash).await {
         warn!("ota: couldn't record rejection (code {}), resetting anyway", e as u8);
     }
     warn!("ota: self-check failed, marking image invalid and rebooting for rollback");
