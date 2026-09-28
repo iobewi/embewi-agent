@@ -9,7 +9,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use log::warn;
 use serde::{Deserialize, Serialize};
 

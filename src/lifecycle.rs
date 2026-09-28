@@ -2,7 +2,7 @@
 //!
 //! This is application policy. FiBeWI never interprets these states.
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use iobewi_esp_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"LFC2";

@@ -1,14 +1,14 @@
 //! Wi-Fi connector integration.
 //!
 //! Radio/network mechanics live in iobewi-esp-wifi. Persistent configuration
-//! is owned by this component through one isolated config-space-manager
+//! is owned by this component through one isolated IOBEWI ConfigSpace
 //! capability; embewi-agent no longer reads or writes Wi-Fi credentials on
 //! the normal path.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
 use esp_hal::peripherals::WIFI;

@@ -3,7 +3,7 @@
 //! This is distinct from agent identity and from lifecycle/OTA state. The
 //! current schema only owns the business service TCP port.
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use log::warn;
 
 use iobewi_esp_config_space::NvsConfigBackend;

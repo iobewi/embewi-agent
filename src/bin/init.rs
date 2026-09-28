@@ -6,7 +6,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use config_space_manager::ConfigManager;
+use iobewi_config_space::ConfigManager;
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embassy_executor::Spawner;
 use esp_backtrace as _;

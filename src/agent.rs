@@ -10,7 +10,7 @@ use core::convert::Infallible;
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use config_space_manager::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigSpace};
 use picoserve::extract::FromRequestParts;
 use picoserve::request::RequestParts;
 use serde::Serialize;
@@ -32,7 +32,7 @@ const MAX_CTRL_URL_LEN: usize = 192;
 const MAX_TOKEN_LEN: usize = 64;
 
 /// Reserved opaque storage for the agent identity/configuration domain.
-/// The component owns the schema; config-space-manager only owns isolation,
+/// The component owns the schema; IOBEWI ConfigSpace only owns isolation,
 /// capacity admission and complete-value replacement.
 pub const CONFIG_BUDGET: Budget = Budget::new(384);
 pub type AgentConfigSpace = ConfigSpace<NvsConfigBackend>;

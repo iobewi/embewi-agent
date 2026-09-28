@@ -24,7 +24,7 @@ extrait. Le paquet et le binaire portent encore le nom historique
 | `embewi-agent` | Services applicatifs, identité, configuration, authentification et assemblage des capacités requises, sans dépendance à une puce. |
 | [IOBEWI HTTP](https://github.com/iobewi/iobewi) | Contrat et dispatch HTTP/TLS portables, implémentés par chaque plateforme. |
 | [FiBeWI](https://github.com/iobewi/fibewi) | Gestion OTA, états A/B, reprise, validation et interface métier OTA indépendantes du matériel. |
-| [config-space-manager](https://github.com/iobewi/config-space-manager) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
+| [IOBEWI ConfigSpace](https://github.com/iobewi/iobewi/tree/main/services/config-space) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
 | `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des contrats demandés par l'agent, FiBeWI et ConfigSpace. |
 | Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
 
