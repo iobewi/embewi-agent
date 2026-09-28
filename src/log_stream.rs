@@ -248,7 +248,7 @@ async fn connect_and_upgrade<'h, 'buf>(
     port: u16,
     token: &str,
 ) -> Result<Session<'h, TcpSocket<'buf>>, AllocString> {
-    let mut session = crate::tls::connect_client(tls, stack, tls_config, rx_buffer, tx_buffer, host, port)
+    let mut session = crate::tls::connect_client(tls, stack, tls_config, crate::time::is_set(), rx_buffer, tx_buffer, host, port)
         .await
         .map_err(|e| format!("connect to {host:?}:{port} failed: {e}"))?;
 

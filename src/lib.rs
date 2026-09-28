@@ -19,5 +19,5 @@ pub mod stack_usage;
 pub mod status;
 pub mod supervisor;
 pub mod time;
-pub mod tls;
+pub use iobewi_esp_tls::service as tls;
 pub mod wifi;

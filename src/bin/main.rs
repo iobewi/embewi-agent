@@ -250,7 +250,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // From here on the runtime is allowed to expose its administrative
     // surface. The HTTP module itself has no port-80 fallback.
-    let tls = embewi_agent_esp::tls::init();
+    let tls = embewi_agent_esp::tls::init(embewi_agent_esp::time::now);
 
     let mut supervisor = embewi_agent_esp::supervisor::ApplicationSupervisor::new(
         spawner,
@@ -265,7 +265,8 @@ async fn main(spawner: Spawner) -> ! {
         config_backend,
     );
 
-    let mut wifi = WifiManager::new(peripherals.WIFI, spawner, wifi_config);
+    let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
+    let mut wifi = WifiManager::new(transport, wifi_config);
     if wifi.reconnect_saved().await {
         if let Some(stack) = wifi.ip_stack() {
             supervisor.on_ip_ready(stack);

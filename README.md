@@ -24,6 +24,7 @@ extrait. Le paquet et le binaire portent encore le nom historique
 | `embewi-agent` | Services applicatifs, identité, configuration, authentification et assemblage des capacités requises, sans dépendance à une puce. |
 | [IOBEWI HTTP](https://github.com/iobewi/iobewi) | Contrat et dispatch HTTP/TLS portables, implémentés par chaque plateforme. |
 | [IOBEWI OTA](https://github.com/iobewi/iobewi/tree/main/services/ota) | Gestion OTA, transactions, reprise, validation et métadonnées durables indépendantes du matériel. |
+| [IOBEWI Wi-Fi et TLS](https://github.com/iobewi/iobewi/tree/main/services) | Identifiants Wi-Fi, reconnexion, reprovisionnement, identité TLS et confiance durables. |
 | [IOBEWI ConfigSpace](https://github.com/iobewi/iobewi/tree/main/services/config-space) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
 | `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des services demandés par l'agent, IOBEWI OTA et ConfigSpace. |
 | Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
@@ -46,7 +47,7 @@ modifier la logique métier de l'agent.
   reprise, préflight, réponses et téléversement HTTP en flux, réconciliation
   au boot et validation bornée dans le temps.
 - **IOBEWI ESP :** flash, ConfigSpace/NVS, slots, EWBT, validation de l'image,
-  watchdog et redémarrage matériel.
+  watchdog, radio Wi-Fi, cryptographie TLS et redémarrage matériel.
 - **Agent :** identité et autorisation des requêtes, état applicatif,
   vérifications préalables à la confirmation, injection de pannes de test,
   montage des routes et composition du firmware ESP.
