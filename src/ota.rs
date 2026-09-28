@@ -1,7 +1,7 @@
 //! Embewi's OTA adapter (contrat §3/§4/§6): the Core streams a raw `.bin`
 //! into whichever `ota_0`/`ota_1` slot isn't currently booted.
 //!
-//! FiBeWI owns the transaction and EWBT state machines. `espbewi-ota`
+//! FiBeWI owns the transaction and EWBT state machines. `iobewi-esp-ota`
 //! locates ESP partitions, executes EWBT flash writes with readback, and
 //! provides the NOR-flash artifact backend. FiBeWI owns the OTA metadata
 //! schema and business decisions; here the application binds ConfigSpace,
@@ -39,11 +39,11 @@ use fibewi::embewi::{
     pending_check_action, FinishValidationError, PendingCheckAction,
 };
 pub use fibewi::embewi::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
-use espbewi_ota::{AppSlot, otadata};
-use espbewi_ota::shared_flash as platform_ota;
+use iobewi_esp_ota::{AppSlot, otadata};
+use iobewi_esp_ota::shared_flash as platform_ota;
 
-use espbewi_config_space::NvsConfigBackend;
-use espbewi_flash::SharedFlash;
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_flash::SharedFlash;
 
 /// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
 /// this exactly, or the write is refused before a single byte transfers.
@@ -265,7 +265,7 @@ struct WriteSession {
     writer: platform_ota::ArtifactWriter,
     /// The generic engine: received/durable byte counts, the undurable
     /// tail, and the streaming digest -- see `fibewi::artifact`'s own
-    /// doc comment. Everything sector-shaped lives in `espbewi-ota`.
+    /// doc comment. Everything sector-shaped lives in `iobewi-esp-ota`.
     engine: fibewi::WriteSession,
     /// When `write_begin` opened this session -- purely diagnostic, logged
     /// by `write_finish` (contrat §4's own `written`/digest reply carries
@@ -392,7 +392,7 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
 }
 
 /// Appends bytes through the ESP writer. FiBeWI tracks digest and durable
-/// progress; espbewi-ota owns sector erase and flash programming.
+/// progress; iobewi-esp-ota owns sector erase and flash programming.
 pub async fn write_chunk(flash: &SharedFlash, data: &[u8]) -> bool {
     let mut session_guard = WRITE_SESSION.lock().await;
     let Some(session) = session_guard.as_mut() else {
@@ -554,7 +554,7 @@ async fn mark_valid(flash: &'static SharedFlash, ota_config: &'static OtaConfigS
         mark_invalid_and_reboot(flash).await;
     }
     // `otadata_confirm` only returns `Ok` once the committed `Valid` entry
-    // has been read back and decoded exactly as written (`espbewi_ota::otadata::confirm`).
+    // has been read back and decoded exactly as written (`iobewi_esp_ota::otadata::confirm`).
     // Only now does the anti-freeze watchdog come off: a freeze anywhere
     // before this point -- including one the self-check race itself can't
     // catch -- still resets into a `Pending` entry embewi-boot rolls back.
@@ -601,22 +601,22 @@ async fn mark_invalid_and_reboot(flash: &'static SharedFlash) -> ! {
 // it running until the image is durably confirmed
 // ([`mark_valid`]/[`disable_boot_watchdog`]).
 //
-// espbewi-watchdog owns the TIMG0 register access. The application chooses
+// iobewi-esp-watchdog owns the TIMG0 register access. The application chooses
 // the deadline and the points at which its boot protection ends.
 
 /// Arms the anti-freeze watchdog. Call exactly once, right after
 /// `TimerGroup::new(peripherals.TIMG0)` (see the module section comment
 /// above for why not any earlier).
 pub fn arm_boot_watchdog() {
-    espbewi_watchdog::arm_ms(WATCHDOG_DEADLINE_MS);
+    iobewi_esp_watchdog::arm_ms(WATCHDOG_DEADLINE_MS);
 }
 
 fn feed_boot_watchdog() {
-    espbewi_watchdog::feed();
+    iobewi_esp_watchdog::feed();
 }
 
 fn disable_boot_watchdog() {
-    espbewi_watchdog::disable();
+    iobewi_esp_watchdog::disable();
 }
 
 /// Runs the existing bounded FiBeWI/ESP confirmation gate after the caller

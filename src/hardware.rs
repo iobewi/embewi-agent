@@ -5,7 +5,7 @@
 use config_space_manager::{Budget, ConfigSpace};
 use log::warn;
 
-use espbewi_config_space::NvsConfigBackend;
+use iobewi_esp_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"HWC1";
 const NONE: u8 = 0xff;

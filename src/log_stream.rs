@@ -34,7 +34,7 @@ use edge_ws::{FrameHeader, FrameType};
 use embassy_net::Stack;
 use embassy_net::tcp::TcpSocket;
 use embassy_time::{with_timeout, Duration, Instant, Timer};
-use espbewi_tls::mbedtls_rs::Session;
+use iobewi_esp_tls::mbedtls_rs::Session;
 use heapless::{Deque, String as HString};
 use log::{Level, LevelFilter, Metadata, Record, info, warn};
 use serde::Serialize;

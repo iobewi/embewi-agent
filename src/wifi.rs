@@ -1,6 +1,6 @@
 //! Wi-Fi connector integration.
 //!
-//! Radio/network mechanics live in espbewi-wifi. Persistent configuration
+//! Radio/network mechanics live in iobewi-esp-wifi. Persistent configuration
 //! is owned by this component through one isolated config-space-manager
 //! capability; embewi-agent no longer reads or writes Wi-Fi credentials on
 //! the normal path.
@@ -15,9 +15,9 @@ use esp_hal::peripherals::WIFI;
 use log::{info, warn};
 use static_cell::StaticCell;
 
-use espbewi_config_space::NvsConfigBackend;
+use iobewi_esp_config_space::NvsConfigBackend;
 
-pub use espbewi_wifi::Network;
+pub use iobewi_esp_wifi::Network;
 
 const CONFIG_MAGIC: &[u8; 4] = b"WFC1";
 const CONFIG_HEADER_LEN: usize = 6;
@@ -97,7 +97,7 @@ pub async fn is_provisioned(space: &WifiConfigSpace) -> bool {
 }
 
 pub struct WifiManager {
-    transport: espbewi_wifi::WifiManager<SOCKETS>,
+    transport: iobewi_esp_wifi::WifiManager<SOCKETS>,
     config: WifiConfigSpace,
 }
 
@@ -108,7 +108,7 @@ impl WifiManager {
         config: WifiConfigSpace,
     ) -> Self {
         Self {
-            transport: espbewi_wifi::WifiManager::new(
+            transport: iobewi_esp_wifi::WifiManager::new(
                 peripheral,
                 spawner,
                 RESOURCES.init(StackResources::new()),
