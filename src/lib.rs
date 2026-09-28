@@ -17,6 +17,6 @@ pub mod runtime_config;
 pub mod stack_usage;
 pub mod status;
 pub mod supervisor;
-pub mod time;
+pub use iobewi_ntp as time;
 pub use iobewi_esp_tls::service as tls;
 pub mod wifi;

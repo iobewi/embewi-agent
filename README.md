@@ -49,6 +49,8 @@ l’agent le monte sous `/v1alpha1/ota` et fournit le redémarrage différé.
 `iobewi-log-stream` collecte les logs et les transmet par WebSocket ;
 `iobewi-esp-log-stream` fournit TLS, l’aléa matériel et la sortie console.
 L’agent fournit uniquement son URL de contrôle, son token et ses métadonnées.
+`iobewi-ntp` synchronise l’horloge Unix par SNTP ; l’agent configure le serveur,
+les délais et le seuil de validité de l’époque.
 Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
 modifier la logique métier de l'agent.
 
