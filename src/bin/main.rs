@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) -> ! {
     // own code.
     embewi_agent_esp::stack_usage::paint();
 
-    // `iobewi_esp_log_stream::install()` replaces `esp_println::logger::init_logger_from_env()`:
+    // The portable log service replaces `esp_println::logger::init_logger_from_env()`:
     // it still prints locally at the same filter level (`.cargo/config.toml`'s
     // ESP_LOG, configured by the shared service), but also captures lines for the outbound
     // WebSocket log stream (contrat §5). `init_logger` (not `_from_env`, the
@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) -> ! {
     // smoltcp, embassy-net and esp-radio were all logging at "info" on the
     // same USB wire Improv uses, real bytes possibly queued behind that
     // chatter, a suspected contributor to an earlier Improv bug.
-    iobewi_esp_log_stream::install("embewi_agent_esp");
+    iobewi_log_stream::install(iobewi_esp_log_stream::console_print, "embewi_agent_esp");
 
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
