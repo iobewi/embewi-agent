@@ -1,47 +1,93 @@
-# Embewi Agent — migration Rust
+# Embewi Agent
 
-Implémentation **device** du contrat [`embewi`](https://github.com/iobewi/embewi)
-(`v1alpha1`), rattaché ici en submodule sous `contract/`.
+Agent embarqué Rust du protocole [Embewi](https://github.com/iobewi/embewi)
+(`v1alpha1`). La spécification Core ↔ Agent est dans
+[`contract/docs/embewi-contract-v2.md`](contract/docs/embewi-contract-v2.md),
+rattachée à ce dépôt sous forme de submodule.
 
-> Cloner avec le contrat : `git clone --recursive …` (ou `git submodule update --init`).
+**Objectif :** compiler le même agent avec un adaptateur de plateforme choisi
+à la construction : [`espbewi`](https://github.com/iobewi/espbewi) pour ESP,
+puis `rpbewi` pour RP2350 et `teensybewi` pour Teensy. Ces deux derniers
+adaptateurs sont prévus, pas encore implémentés.
 
-## État
+**État actuel :** malgré le renommage du dépôt, le code et les deux binaires
+Cargo restent liés à l'ESP. La cible matérielle du firmware compilé ici est
+l'ESP32-S3-N16R8. ESP32-C3 reste couvert par les briques partagées comme
+cible de non-régression ; le cœur indépendant du matériel n'a pas encore été
+extrait. Le paquet et le binaire portent encore le nom historique
+`embewi-agent-esp` pendant cette migration.
 
-Ce dépôt repart d'une base vierge pour réécrire l'agent en **Rust**
-(l'ancienne implémentation ESP-IDF/C est conservée sur la branche
-[`firmware-c`](https://github.com/iobewi/embewi-agent-esp/tree/firmware-c)
-comme référence fonctionnelle et point de comparaison).
+## Architecture cible
 
-La spec normative reste **`contract/docs/embewi-contract-v2.md`** — source de
-vérité Core ↔ Agent, inchangée par la migration de langage.
+| Composant | Responsabilité |
+| --- | --- |
+| `embewi-agent` | Services applicatifs, identité, configuration, authentification et assemblage des capacités requises, sans dépendance à une puce. |
+| [FiBeWI](https://github.com/iobewi/fibewi) | Gestion OTA, états A/B, reprise, validation et interface métier OTA indépendantes du matériel. |
+| [config-space-manager](https://github.com/iobewi/config-space-manager) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
+| `espbewi` / futurs `rpbewi`, `teensybewi` | Implémentations matérielles des contrats demandés par l'agent, FiBeWI et ConfigSpace. |
+| Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
 
-## Build
+FiBeWI et ConfigSpace définissent leurs interfaces et ne dépendent pas d'un
+adaptateur ESP. `espbewi` fournit leurs implémentations sur ESP : flash,
+partitions, boot, NVS, watchdog, Wi-Fi et TLS. Le choix de la plateforme est
+statique à la compilation ; chaque cible conserve sa toolchain, son linker,
+son plan de flash et son bootloader propres.
 
-Le chemin matériel courant cible l'ESP32-S3-N16R8 avec la toolchain Xtensa
-`esp`. Le support ESP32-C3 reste présent dans les briques partagées et sert
-de cible de non-régression.
+L'interface métier OTA doit rejoindre FiBeWI. L'authentification de l'agent
+et l'adaptation au serveur HTTP restent aux frontières de l'application.
+Une plateforme supplémentaire doit pouvoir fournir ses capacités sans
+modifier la logique métier de l'agent.
 
-## OTA A/B et rollback anti-brick
+## Migration en cours
 
-Full Rust, sans ESP-IDF : le second-stage bootloader matériel appartient à
-`espbewi` (`espbewi/bootloader/esp`). Il consomme les primitives et la
-machine de cycle de vie FiBeWI pour EWBT/A-B/rollback.
+- **Déjà séparé :** le moteur de transactions et la logique EWBT/A-B dans
+  FiBeWI ; l'accès flash, `otadata`, ConfigSpace/NVS, Wi-Fi, TLS et watchdog
+  ESP dans les composants `espbewi`.
+- **Encore à extraire :** une partie de la gestion OTA, de son interface métier
+  et de l'orchestration de la flash se trouve dans `src/ota.rs` et
+  `src/http/api/ota_write.rs`. Les types ESP concrets et l'initialisation des
+  périphériques apparaissent encore dans le code de l'agent.
+- **Prochaine frontière :** FiBeWI porte le parcours OTA complet ; les
+  adaptateurs implémentent ses capacités matérielles ; le firmware ESP ne
+  fait qu'assembler ces composants avec l'agent. Un adaptateur de test
+  indépendant de l'ESP servira à vérifier cette frontière avant un portage
+  RP2350 ou Teensy.
 
-Le chemin complet ROM → bootloader → `embewi-init` → agent, le cycle OTA
-positif, le rejet d'image invalide, le rollback et le watchdog matériel ont
-été validés sur ESP32-S3 réel. Le chemin ESP32-C3 reste la cible historique
-de référence.
+La branche [firmware-c](https://github.com/iobewi/embewi-agent/tree/firmware-c)
+conserve l'ancienne implémentation ESP-IDF/C comme référence fonctionnelle.
 
-## Installation firmware (ESP Web Tools)
+## Compiler la cible ESP actuelle
 
-Le devcontainer sert `web/` — une page qui permet de flasher le firmware
-depuis le navigateur (Chrome/Edge, via Web Serial), sans toolchain côté
-client.
+Cloner aussi le contrat :
 
-- Servi automatiquement au démarrage du conteneur (`postStartCommand`) sur
-  le port `8080`, forwardé par le devcontainer sous le label
-  "ESP Web Tools".
-- Les images flashables (`web/firmware/<chip>/firmware.bin`) ne sont pas
-  commitées : à régénérer après chaque build avec `scripts/build-boot.sh`.
+```sh
+git clone --recursive https://github.com/iobewi/embewi-agent.git
+cd embewi-agent
+# Pour un clone déjà présent : git submodule update --init
+```
 
-Détails dans [`web/README.md`](web/README.md).
+Le devcontainer fournit la toolchain Xtensa `esp`. Le contrôle de compilation
+utilisé par la CI pour l'ESP32-S3 est :
+
+```sh
+cargo +esp check --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+```
+
+Pour construire l'image flashable avec le bootloader ESP FiBeWI :
+
+```sh
+scripts/build-boot.sh
+```
+
+Les images produites dans `web/firmware/<chip>/` ne sont pas commitées. Le
+chemin ROM → bootloader → `embewi-init` → agent, le cycle OTA positif, le rejet
+d'une image invalide, le rollback et le watchdog matériel ont été validés
+sur ESP32-S3 réel. Chaque changement du chemin OTA ou du boot nécessite une
+nouvelle vérification matérielle ; la compilation CI ne remplace pas cet essai.
+
+## Installation ESP depuis le navigateur
+
+Le devcontainer sert `web/` sur le port `8080` sous le label « ESP Web Tools ».
+Cette page utilise Web Serial pour flasher les images générées, sans toolchain
+sur le poste client. Voir [`web/README.md`](web/README.md) pour la génération
+des images, le provisionnement et la récupération.
