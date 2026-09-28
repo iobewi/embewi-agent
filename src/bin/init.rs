@@ -141,7 +141,7 @@ async fn main(spawner: Spawner) -> ! {
     // slot that only `Tls::new` fills, and reports an entropy failure while no
     // `Tls` is active. Creating it draws no randomness itself, so the ADC-backed
     // source above still covers every byte the key generation consumes.
-    let tls_handle = tls::init();
+    let tls_handle = tls::init(embewi_agent_esp::time::now);
     let identity_name = agent::node_id(agent_config).await;
     tls::ensure_server_identity(tls_config, &identity_name)
         .await
@@ -163,7 +163,8 @@ async fn main(spawner: Spawner) -> ! {
         factory_agent(),
     );
 
-    let mut wifi = WifiManager::new(peripherals.WIFI, spawner, wifi_config);
+    let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
+    let mut wifi = WifiManager::new(transport, wifi_config);
     if wifi.reconnect_saved().await {
         if let Some(stack) = wifi.ip_stack() {
             supervisor.on_ip_ready(stack);
