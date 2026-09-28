@@ -1701,7 +1701,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 [[package]]
 name = "fibewi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/fibewi?rev=13ebee5000d4c7653382cf4e1c7395a3eb74153f#13ebee5000d4c7653382cf4e1c7395a3eb74153f"
+source = "git+https://github.com/iobewi/fibewi?rev=dd6a7a93d00c9c56cf8b12af1f5ea92f4957e9ad#dd6a7a93d00c9c56cf8b12af1f5ea92f4957e9ad"
 dependencies = [
  "sha2",
 ]

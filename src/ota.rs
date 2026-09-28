@@ -21,7 +21,6 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::fmt::Write as _;
 
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -35,6 +34,11 @@ use sha2::{Digest as _, Sha256};
 
 use crate::agent;
 use fibewi::{Action, BackendOutcome, TransactionState};
+use fibewi::embewi::{
+    Metadata as OtaMetadata, Transaction as OtaTransaction,
+    format_digest, parse_digest, staged_from_transaction, transaction_from_staged,
+};
+pub use fibewi::embewi::{MetadataError as OtaMetadataError, Stage, Staged};
 use espbewi_ota::{AppPartition, AppSlot, EspArtifactStorage, erase_partition_range, otadata};
 
 use espbewi_config_space::NvsConfigBackend;
@@ -45,12 +49,7 @@ use espbewi_flash::{EspFlash, SharedFlash};
 /// Bump only if `partitions.csv`'s slot layout ever changes shape.
 pub const PARTITION_LAYOUT: &str = "embewi-ab-v1";
 
-const METADATA_MAGIC: &[u8; 4] = b"OTM1";
-const METADATA_HEADER_LEN: usize = 19;
-const MAX_SLOT_LEN: usize = 8;
-const MAX_DIGEST_LEN: usize = 71;
-const MAX_DEPLOYMENT_ID_LEN: usize = 128;
-pub const CONFIG_BUDGET: Budget = Budget::new(512);
+pub const CONFIG_BUDGET: Budget = Budget::new(OtaMetadata::MAX_BYTES);
 pub type OtaConfigSpace = ConfigSpace<NvsConfigBackend>;
 
 /// Metadata for the first production agent image preloaded by the factory
@@ -73,12 +72,6 @@ pub enum PreloadedAgentError {
 }
 
 
-#[derive(Debug)]
-pub enum OtaMetadataError {
-    Persistence,
-    Corrupt,
-    TooLarge,
-}
 /// Contrat §3: how long a `pending_verify` self-check gets before this
 /// device forces its own reset -- unconfirmed past this, the bootloader's
 /// own rollback takes over on the next boot. Same value `firmware-c` uses
@@ -120,143 +113,6 @@ async fn otadata_activate(flash: &SharedFlash, target: AppSlot) -> Result<(), ot
     otadata::activate(guard.storage(), &mut table_buffer(), target)
 }
 
-/// Contrat §4: `staged.state` ∈ `none | written | activating`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    None,
-    Written,
-    Activating,
-}
-
-impl Stage {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Stage::None => "none",
-            Stage::Written => "written",
-            Stage::Activating => "activating",
-        }
-    }
-
-    fn from_u8(v: u8) -> Self {
-        match v {
-            1 => Stage::Written,
-            2 => Stage::Activating,
-            _ => Stage::None,
-        }
-    }
-}
-
-/// What's sitting in the inactive slot right now (contrat §4/§6's staged
-/// object).
-#[derive(Clone, Default)]
-pub struct Staged {
-    pub stage: Stage,
-    pub slot: String,
-    pub digest: String,
-    pub deployment_id: String,
-    pub size: u32,
-}
-
-impl Default for Stage {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[derive(Clone, Default)]
-struct OtaMetadata {
-    staged: Staged,
-    active_digest: String,
-    active_deployment_id: String,
-}
-
-impl OtaMetadata {
-    fn encode(&self) -> Result<alloc::vec::Vec<u8>, OtaMetadataError> {
-        let fields = [
-            self.staged.slot.as_bytes(),
-            self.staged.digest.as_bytes(),
-            self.staged.deployment_id.as_bytes(),
-            self.active_digest.as_bytes(),
-            self.active_deployment_id.as_bytes(),
-        ];
-        if fields[0].len() > MAX_SLOT_LEN
-            || fields[1].len() > MAX_DIGEST_LEN
-            || fields[2].len() > MAX_DEPLOYMENT_ID_LEN
-            || fields[3].len() > MAX_DIGEST_LEN
-            || fields[4].len() > MAX_DEPLOYMENT_ID_LEN
-        {
-            return Err(OtaMetadataError::TooLarge);
-        }
-
-        let total = METADATA_HEADER_LEN
-            + fields.iter().map(|field| field.len()).sum::<usize>();
-        if total > CONFIG_BUDGET.max_bytes() {
-            return Err(OtaMetadataError::TooLarge);
-        }
-
-        let mut out = alloc::vec::Vec::with_capacity(total);
-        out.extend_from_slice(METADATA_MAGIC);
-        out.push(self.staged.stage as u8);
-        out.extend_from_slice(&self.staged.size.to_le_bytes());
-        for field in fields {
-            let len = u16::try_from(field.len()).map_err(|_| OtaMetadataError::TooLarge)?;
-            out.extend_from_slice(&len.to_le_bytes());
-        }
-        for field in fields {
-            out.extend_from_slice(field);
-        }
-        Ok(out)
-    }
-
-    fn decode(raw: &[u8]) -> Result<Self, OtaMetadataError> {
-        if raw.len() < METADATA_HEADER_LEN || &raw[..4] != METADATA_MAGIC {
-            return Err(OtaMetadataError::Corrupt);
-        }
-        let stage = match raw[4] {
-            0 => Stage::None,
-            1 => Stage::Written,
-            2 => Stage::Activating,
-            _ => return Err(OtaMetadataError::Corrupt),
-        };
-        let size = u32::from_le_bytes([raw[5], raw[6], raw[7], raw[8]]);
-        let mut lens = [0usize; 5];
-        for (i, len) in lens.iter_mut().enumerate() {
-            let at = 9 + i * 2;
-            *len = u16::from_le_bytes([raw[at], raw[at + 1]]) as usize;
-        }
-        if lens[0] > MAX_SLOT_LEN
-            || lens[1] > MAX_DIGEST_LEN
-            || lens[2] > MAX_DEPLOYMENT_ID_LEN
-            || lens[3] > MAX_DIGEST_LEN
-            || lens[4] > MAX_DEPLOYMENT_ID_LEN
-        {
-            return Err(OtaMetadataError::Corrupt);
-        }
-
-        let mut cursor = METADATA_HEADER_LEN;
-        let mut next = |len: usize| -> Result<&str, OtaMetadataError> {
-            let end = cursor.checked_add(len).ok_or(OtaMetadataError::Corrupt)?;
-            let bytes = raw.get(cursor..end).ok_or(OtaMetadataError::Corrupt)?;
-            cursor = end;
-            core::str::from_utf8(bytes).map_err(|_| OtaMetadataError::Corrupt)
-        };
-        let slot = String::from(next(lens[0])?);
-        let digest = String::from(next(lens[1])?);
-        let deployment_id = String::from(next(lens[2])?);
-        let active_digest = String::from(next(lens[3])?);
-        let active_deployment_id = String::from(next(lens[4])?);
-        if cursor != raw.len() {
-            return Err(OtaMetadataError::Corrupt);
-        }
-
-        Ok(Self {
-            staged: Staged { stage, slot, digest, deployment_id, size },
-            active_digest,
-            active_deployment_id,
-        })
-    }
-}
-
 async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
     match space.load().await {
         Ok(Some(snapshot)) => OtaMetadata::decode(&snapshot.data),
@@ -292,107 +148,18 @@ async fn save_staged(
     size: u32,
 ) -> Result<(), OtaMetadataError> {
     let mut metadata = load_metadata(space).await?;
-    metadata.staged = Staged {
+    metadata.set_staged(Staged {
         stage,
         slot: String::from(slot),
         digest: String::from(digest),
         deployment_id: String::from(deployment_id),
         size,
-    };
+    });
     save_metadata(space, &metadata).await
 }
 
 pub async fn clear_staged(space: &OtaConfigSpace) -> Result<(), OtaMetadataError> {
     save_staged(space, Stage::None, "", "", "", 0).await
-}
-
-/// The one artifact kind v1 ever stages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ArtifactKind {
-    Firmware,
-}
-
-/// Firmware artifacts only target one of the two OTA partitions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Target {
-    Ota0,
-    Ota1,
-}
-
-impl Target {
-    fn to_app_slot(self) -> AppSlot {
-        match self { Self::Ota0 => AppSlot::Ota0, Self::Ota1 => AppSlot::Ota1 }
-    }
-
-    fn from_app_slot(slot: AppSlot) -> Self {
-        match slot { AppSlot::Ota0 => Self::Ota0, AppSlot::Ota1 => Self::Ota1 }
-    }
-
-    fn to_slot_name(self) -> &'static str { self.to_app_slot().as_str() }
-
-    fn from_slot_name(name: &str) -> Option<Self> {
-        match name { "ota_0" => Some(Self::Ota0), "ota_1" => Some(Self::Ota1), _ => None }
-    }
-}
-
-type OtaTransaction = fibewi::TransactionRecord<String, ArtifactKind, Target>;
-
-fn parse_digest(value: &str) -> Option<fibewi::Digest> {
-    let hex = value.strip_prefix("sha256:")?;
-    if hex.len() != 64 {
-        return None;
-    }
-    let mut bytes = [0u8; 32];
-    for (i, b) in bytes.iter_mut().enumerate() {
-        *b = u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()?;
-    }
-    Some(fibewi::Digest(bytes))
-}
-
-fn format_digest(digest: &fibewi::Digest) -> String {
-    let mut s = String::from("sha256:");
-    for b in digest.0 {
-        let _ = write!(s, "{b:02x}");
-    }
-    s
-}
-
-fn transaction_from_staged(staged: &Staged) -> Option<OtaTransaction> {
-    let state = match staged.stage {
-        Stage::None => return None,
-        Stage::Written => TransactionState::Staged,
-        Stage::Activating => TransactionState::Activating,
-    };
-    Some(OtaTransaction {
-        id: staged.deployment_id.clone(),
-        state,
-        artifacts: alloc::vec![fibewi::ArtifactRecord {
-            id: ArtifactKind::Firmware,
-            size: u64::from(staged.size),
-            digest: parse_digest(&staged.digest)?,
-            target: Target::from_slot_name(&staged.slot)?,
-        }],
-    })
-}
-
-fn staged_from_transaction(record: Option<&OtaTransaction>) -> Result<Staged, OtaMetadataError> {
-    let Some(record) = record else {
-        return Ok(Staged::default());
-    };
-    let stage = match record.state {
-        TransactionState::Staged => Stage::Written,
-        TransactionState::Activating => Stage::Activating,
-        _ => return Err(OtaMetadataError::Corrupt),
-    };
-    let artifact = record.artifacts.first().ok_or(OtaMetadataError::Corrupt)?;
-    let size = u32::try_from(artifact.size).map_err(|_| OtaMetadataError::TooLarge)?;
-    Ok(Staged {
-        stage,
-        slot: String::from(artifact.target.to_slot_name()),
-        digest: format_digest(&artifact.digest),
-        deployment_id: record.id.clone(),
-        size,
-    })
 }
 
 struct MemoryTransactionMetadata {
@@ -423,7 +190,7 @@ async fn commit_transaction(
     record: Option<&OtaTransaction>,
 ) -> Result<(), OtaMetadataError> {
     let mut metadata = load_metadata(space).await?;
-    metadata.staged = staged_from_transaction(record)?;
+    metadata.set_staged(staged_from_transaction(record)?);
     save_metadata(space, &metadata).await
 }
 
@@ -511,15 +278,13 @@ pub async fn stage_preloaded_agent(
         return Err(PreloadedAgentError::DigestMismatch);
     }
 
-    let target_kind = Target::from_app_slot(target.slot);
-
     let record = OtaTransaction::staged(
         String::from(image.deployment_id),
         fibewi::ArtifactRecord {
-            id: ArtifactKind::Firmware,
+            id: String::from("firmware"),
             size: u64::from(image.size),
             digest: expected,
-            target: target_kind,
+            target: String::from(target.slot.as_str()),
         },
     );
     commit_transaction(ota_config, Some(&record))
@@ -581,7 +346,7 @@ pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &Pre
     // `accepted` and then having the following PUT hit `write_begin`'s own
     // `Conflict` would be a prepare that lied.
     if let Ok(Some(record)) = load_transaction(ota_config).await {
-        if record.state != TransactionState::Staged {
+        if !fibewi::embewi::can_supersede(Some(&record)) {
             return refuse("busy");
         }
     }
@@ -761,7 +526,7 @@ pub async fn write_begin(flash: &SharedFlash, ota_config: &OtaConfigSpace, param
 
     match load_transaction(ota_config).await.map_err(BeginError::Storage)? {
         None => {}
-        Some(record) if record.state == TransactionState::Staged => {
+        Some(record) if fibewi::embewi::can_supersede(Some(&record)) => {
             commit_transaction(ota_config, None)
                 .await
                 .map_err(BeginError::Storage)?;
@@ -927,10 +692,9 @@ pub async fn write_finish(flash: &SharedFlash, ota_config: &OtaConfigSpace) -> R
     sectors_flushed += (committed.size - before).div_ceil(ota_erase_size() as u64) as u32;
 
     let digest = format_digest(&committed.digest);
-    let target = Target::from_app_slot(slot);
     let record = OtaTransaction::staged(
         params.deployment_id.clone(),
-        fibewi::ArtifactRecord { id: ArtifactKind::Firmware, size: committed.size, digest: committed.digest, target },
+        fibewi::ArtifactRecord { id: String::from("firmware"), size: committed.size, digest: committed.digest, target: String::from(slot.as_str()) },
     );
     commit_transaction(ota_config, Some(&record))
         .await
@@ -965,6 +729,15 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
     let current = load_transaction(ota_config)
         .await
         .map_err(ActivateError::Storage)?;
+    // Reject a stale or unknown platform target before persisting Activating.
+    let slot = current.as_ref()
+        .and_then(|record| record.artifacts.first())
+        .and_then(|artifact| match artifact.target.as_str() {
+            "ota_0" => Some(AppSlot::Ota0),
+            "ota_1" => Some(AppSlot::Ota1),
+            _ => None,
+        })
+        .ok_or(ActivateError::NotStaged)?;
     let mut meta = MemoryTransactionMetadata { record: current };
     let activating = fibewi::activate(&mut meta, &String::from(deployment_id)).map_err(|e| match e {
         fibewi::Error::NotStaged => ActivateError::NotStaged,
@@ -975,8 +748,7 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
         .await
         .map_err(ActivateError::Storage)?;
     // `fibewi::activate` already refused an empty artifact list.
-    let target = activating.artifacts[0].target;
-    let ok = otadata_activate(flash, target.to_app_slot()).await.is_ok();
+    let ok = otadata_activate(flash, slot).await.is_ok();
     if !ok {
         // Best effort: back to `Staged` so a retry of `activate` is possible.
         let reverted = activating.with_state(TransactionState::Staged);
@@ -986,8 +758,8 @@ pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployme
         return Err(ActivateError::NotStaged);
     }
 
-    info!("ota: activate dep={deployment_id} -> slot={} prêt, reboot imminent", target.to_slot_name());
-    Ok(target.to_slot_name())
+    info!("ota: activate dep={deployment_id} -> slot={} prêt, reboot imminent", slot.as_str());
+    Ok(slot.as_str())
 }
 
 pub enum ActivateError {
@@ -1005,8 +777,7 @@ pub enum ActivateError {
 /// next boot ([`Action::FinishInterruptedActivation`]).
 async fn promote_staged(ota_config: &OtaConfigSpace, staged: &Staged) -> Result<(), OtaMetadataError> {
     let mut metadata = load_metadata(ota_config).await?;
-    metadata.active_digest = staged.digest.clone();
-    metadata.active_deployment_id = staged.deployment_id.clone();
+    metadata.promote_staged(staged);
     save_metadata(ota_config, &metadata).await
 }
 
