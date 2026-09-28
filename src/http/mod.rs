@@ -16,7 +16,8 @@ use embassy_net::Stack;
 use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::LPWR;
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
-use picoserve::response::{ContentBody, ContentHeaders, Response, StatusCode};
+use picoserve::response::StatusCode;
+pub(super) use iobewi_http::json::{json_error, json_ok, JsonResponse};
 use iobewi_http::routing::PathRouter;
 use iobewi_http::HttpRouter;
 
@@ -108,21 +109,6 @@ pub(super) fn html_escape(s: &str) -> String {
         }
     }
     out
-}
-
-/// Named explicitly (not `impl IntoResponse`): every `/v1alpha1/*` handler
-/// branches between this and [`json_error`]/[`unauthorized`], and separate
-/// `impl Trait` return sites never unify even when the concrete type
-/// matches -- picoserve's own `Response::ok`/`::new` already resolve to
-/// this same `Response<ContentHeaders, ContentBody<String>>` either way.
-pub(super) type JsonResponse = Response<ContentHeaders, ContentBody<String>>;
-
-pub(super) fn json_ok(body: String) -> JsonResponse {
-    Response::ok(body).with_content_type("application/json")
-}
-
-pub(super) fn json_error(status: StatusCode, body: &str) -> JsonResponse {
-    Response::new(status, String::from(body)).with_content_type("application/json")
 }
 
 /// Shared by every `/v1alpha1/*` handler (contrat §4b: `401
