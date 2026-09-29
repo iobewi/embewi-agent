@@ -111,6 +111,7 @@ impl ApplicationSupervisor {
             server: "pool.ntp.org",
             resync_period: embassy_time::Duration::from_secs(3600),
             retry_period: embassy_time::Duration::from_secs(15),
+            exchange_timeout: embassy_time::Duration::from_secs(10),
             plausible_epoch_floor: 1_700_000_000,
         }).unwrap());
         self.spawner
