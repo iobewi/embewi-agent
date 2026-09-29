@@ -24,7 +24,7 @@
 use alloc::string::String;
 
 use embassy_time::Duration;
-use iobewi_config_space::Budget;
+use iobewi_config_space::{Budget, ConfigSpace};
 use log::{info, warn};
 pub use iobewi_ota::http::{PrepareRequest, PrepareResponse};
 
@@ -40,6 +40,13 @@ use iobewi_esp_ota::service::{EspBoot, OtaStore};
 pub use iobewi_esp_ota::service::OtaConfigSpace;
 
 use iobewi_esp_config_space::NvsConfigBackend;
+
+pub use iobewi_ota::bootstrap::{
+    BootstrapError, BootstrapState, begin_provisioning, production,
+    ready_for_agent, state as bootstrap_state,
+};
+pub const BOOTSTRAP_CONFIG_BUDGET: Budget = iobewi_ota::bootstrap::CONFIG_BUDGET;
+pub type BootstrapConfigSpace = ConfigSpace<NvsConfigBackend>;
 use iobewi_esp_flash::SharedFlash;
 
 /// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
