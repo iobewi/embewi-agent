@@ -27,42 +27,32 @@ use ota_write::AgentOtaBackend;
 /// Public API namespace selected by EmBewi, independent of service routes.
 pub(crate) const API_PREFIX: &str = "/v1alpha1";
 
-/// Application authorization and ESP persistence ports for the portable TLS API.
-struct AgentTlsProvisioningBackend {
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    agent_config: &'static agent::AgentConfigSpace,
-}
-
-impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
-    async fn authorize(&self, token: &str) -> bool {
-        agent::is_authorized(self.agent_config, token).await
-    }
-
-    async fn save_cert(&self, cert_pem: &str, key_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
-        crate::tls::save_cert(self.tls_config, cert_pem, key_pem).await
-    }
-
-    async fn save_ca(&self, ca_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
-        crate::tls::save_ca(self.tls_config, ca_pem).await
-    }
-}
-
 /// Plain `async fn`, not `#[embassy_executor::task]`: called from inside
 /// `http::run`'s own `if is_locked() {...} else {...}` (see that module's
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::config::serve`]'s instead
 /// of both being reserved simultaneously and permanently.
-pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static>(
+///
+/// `tls_backend` supplies TLS-identity authorization/persistence through the
+/// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
+/// module never knows how certificates are validated or stored, only that
+/// `cert_response`/`ca_response` need a backend to call.
+pub async fn serve<L, R, TB>(
     listener: &mut L,
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static agent::AgentConfigSpace,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static crate::tls::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: R,
-) -> ! {
+    tls_backend: TB,
+) -> !
+where
+    L: iobewi_https::TlsListener,
+    R: RebootPort + Clone + 'static,
+    TB: iobewi_tls::http::ProvisioningBackend + Clone + 'static,
+{
     let api_routes = HttpRouter::new()
         .route(
             "/info",
@@ -192,19 +182,31 @@ pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static
             reboot,
         ))
         // The TLS service owns authentication and the wire contract; the
-        // application only mounts its routes on the shared HTTPS server.
+        // application only mounts its routes on the shared HTTPS server and
+        // supplies the injected `tls_backend` capability, never how
+        // certificates are validated or persisted.
         .route(
             iobewi_tls::http::CERT_PATH,
-            post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                let backend = AgentTlsProvisioningBackend { tls_config, agent_config };
-                iobewi_tls::http::cert_response(&backend, token.as_deref().unwrap_or(""), &body).await
+            post({
+                let tls_backend = tls_backend.clone();
+                move |agent::Bearer(token): agent::Bearer, body: String| {
+                    let tls_backend = tls_backend.clone();
+                    async move {
+                        iobewi_tls::http::cert_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
+                    }
+                }
             }),
         )
         .route(
             iobewi_tls::http::CA_PATH,
-            post(move |agent::Bearer(token): agent::Bearer, body: String| async move {
-                let backend = AgentTlsProvisioningBackend { tls_config, agent_config };
-                iobewi_tls::http::ca_response(&backend, token.as_deref().unwrap_or(""), &body).await
+            post({
+                let tls_backend = tls_backend.clone();
+                move |agent::Bearer(token): agent::Bearer, body: String| {
+                    let tls_backend = tls_backend.clone();
+                    async move {
+                        iobewi_tls::http::ca_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
+                    }
+                }
             }),
         );
     let router = HttpRouter::new().nest(API_PREFIX, api_routes);

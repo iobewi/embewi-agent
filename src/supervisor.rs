@@ -41,8 +41,8 @@ async fn run_heartbeat(
     agent_config: &'static crate::agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    tls: crate::tls::TlsReferenceStatic,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
     diagnostics: EspRuntimeDiagnostics,
 ) -> ! {
     static TRANSPORT: StaticCell<EspClientTransport> = StaticCell::new();
@@ -54,12 +54,36 @@ async fn run_heartbeat(
 async fn run_log_stream(
     stack: Stack<'static>,
     agent_config: &'static crate::agent::AgentConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    tls: crate::tls::TlsReferenceStatic,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
     let config = AgentLogConfig { space: agent_config };
     let transport = EspLogTransport { stack, tls, tls_config, clock_is_set: crate::time::is_set };
     iobewi_log_stream::run(&config, &transport).await
+}
+
+/// Application authorization plus ESP persistence for the portable TLS
+/// provisioning API (`iobewi_tls::http::ProvisioningBackend`). Built once at
+/// composition and injected into `http::api::serve` -- the portable HTTP
+/// layer never sees `iobewi_esp_tls` or `TlsConfigSpace` itself.
+#[derive(Clone, Copy)]
+struct AgentTlsProvisioningBackend {
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace,
+}
+
+impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
+    async fn authorize(&self, token: &str) -> bool {
+        crate::agent::is_authorized(self.agent_config, token).await
+    }
+
+    async fn save_cert(&self, cert_pem: &str, key_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
+        iobewi_esp_tls::service::save_cert(self.tls_config, cert_pem, key_pem).await
+    }
+
+    async fn save_ca(&self, ca_pem: &str) -> Result<(), iobewi_tls::SaveCertError> {
+        iobewi_esp_tls::service::save_ca(self.tls_config, ca_pem).await
+    }
 }
 
 /// Constructs the platform's `EspTlsListener` (the ESP implementation of the
@@ -77,31 +101,32 @@ async fn run_http_api(
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static crate::agent::AgentConfigSpace,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
     let mut rx = [0u8; 1024];
     let mut tx = [0u8; 1024];
     let mut listener = EspTlsListener::new(
         stack,
         tls,
-        || crate::tls::server_config(tls_config),
+        || iobewi_esp_tls::service::server_config(tls_config),
         &mut rx,
         &mut tx,
     );
+    let tls_backend = AgentTlsProvisioningBackend { tls_config, agent_config };
     crate::http::api::serve(
         &mut listener,
         flash,
         nvs_backend,
         agent_config,
         app_config,
-        tls_config,
         runtime_config,
         ota_config,
         reboot,
+        tls_backend,
     ).await
 }
 
@@ -113,19 +138,19 @@ async fn run_http_provisioning(
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
     reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
     let mut rx = [0u8; 1024];
     let mut tx = [0u8; 1024];
     let mut listener = EspTlsListener::new(
         stack,
         tls,
-        || crate::tls::server_config(tls_config),
+        || iobewi_esp_tls::service::server_config(tls_config),
         &mut rx,
         &mut tx,
     );
@@ -144,10 +169,10 @@ async fn run_http_provisioning(
 pub struct ApplicationSupervisor {
     spawner: Spawner,
     reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
     agent_config: &'static crate::agent::AgentConfigSpace,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     flash: &'static SharedFlash,
@@ -161,10 +186,10 @@ impl ApplicationSupervisor {
     pub fn new(
         spawner: Spawner,
         reboot: EspReboot,
-        tls: crate::tls::TlsReferenceStatic,
+        tls: iobewi_esp_tls::service::TlsReferenceStatic,
         agent_config: &'static crate::agent::AgentConfigSpace,
         app_config: &'static ConfigSpace<NvsConfigBackend>,
-        tls_config: &'static crate::tls::TlsConfigSpace,
+        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
         runtime_config: &'static crate::runtime_config::RuntimeConfig,
         ota_config: &'static crate::ota::OtaConfigSpace,
         flash: &'static SharedFlash,
@@ -240,11 +265,11 @@ impl ApplicationSupervisor {
 pub struct ProvisioningSupervisor {
     spawner: Spawner,
     reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
+    tls: iobewi_esp_tls::service::TlsReferenceStatic,
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
@@ -256,11 +281,11 @@ impl ProvisioningSupervisor {
     pub fn new(
         spawner: Spawner,
         reboot: EspReboot,
-        tls: crate::tls::TlsReferenceStatic,
+        tls: iobewi_esp_tls::service::TlsReferenceStatic,
         flash: &'static SharedFlash,
         agent_config: &'static crate::agent::AgentConfigSpace,
         hardware_config: &'static crate::hardware::HardwareConfigSpace,
-        tls_config: &'static crate::tls::TlsConfigSpace,
+        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
         lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
         ota_config: &'static crate::ota::OtaConfigSpace,
         factory_agent: crate::ota::PreloadedAgent,

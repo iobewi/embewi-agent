@@ -17,9 +17,13 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use static_cell::StaticCell;
 
-use embewi_agent_esp::{agent, hardware, ota, provisioning, tls, wifi};
+use embewi_agent_esp::{agent, hardware, ota, provisioning, wifi};
 use embewi_agent_esp::provisioning::NetworkReady;
 use embewi_agent_esp::wifi::WifiManager;
+// Composition roots are allowed to know the ESP TLS platform directly --
+// only the portable applicative library (embewi_agent_esp's own lib.rs)
+// must not re-export it.
+use iobewi_esp_tls::service as tls;
 use iobewi_esp_indicator::EspStatusIndicator;
 
 esp_bootloader_esp_idf::esp_app_desc!();

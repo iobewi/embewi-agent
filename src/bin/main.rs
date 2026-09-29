@@ -17,7 +17,10 @@ use static_cell::StaticCell;
 use embewi_agent_esp::agent;
 use embewi_agent_esp::app_config;
 use embewi_agent_esp::hardware;
-use embewi_agent_esp::tls;
+// Composition roots are allowed to know the ESP TLS platform directly --
+// only the portable applicative library (embewi_agent_esp's own lib.rs)
+// must not re-export it.
+use iobewi_esp_tls::service as tls;
 use iobewi_config_space::{ConfigManager, ConfigSpace};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use iobewi_esp_indicator::led_task;
@@ -249,7 +252,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // From here on the runtime is allowed to expose its administrative
     // surface. The HTTP module itself has no port-80 fallback.
-    let tls = embewi_agent_esp::tls::init(embewi_agent_esp::time::now);
+    let tls = tls::init(embewi_agent_esp::time::now);
 
     let reboot = iobewi_esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
     let mut supervisor = embewi_agent_esp::supervisor::ApplicationSupervisor::new(
