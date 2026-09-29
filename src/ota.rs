@@ -24,7 +24,7 @@
 use alloc::string::String;
 
 use embassy_time::Duration;
-use iobewi_config_space::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use log::{info, warn};
 pub use iobewi_ota::http::{PrepareRequest, PrepareResponse};
 
@@ -41,12 +41,52 @@ pub use iobewi_esp_ota::service::OtaConfigSpace;
 
 use iobewi_esp_config_space::NvsConfigBackend;
 
-pub use iobewi_ota::bootstrap::{
-    BootstrapError, BootstrapState, begin_provisioning, production,
-    ready_for_agent, state as bootstrap_state,
-};
-pub const BOOTSTRAP_CONFIG_BUDGET: Budget = iobewi_ota::bootstrap::CONFIG_BUDGET;
+pub use iobewi_ota::bootstrap::{BootstrapError, BootstrapState};
+pub const BOOTSTRAP_CONFIG_BUDGET: Budget =
+    Budget::new(iobewi_ota::bootstrap::MAX_BYTES);
 pub type BootstrapConfigSpace = ConfigSpace<NvsConfigBackend>;
+
+struct BootstrapConfigStore<'a, B: ConfigBackend>(&'a ConfigSpace<B>);
+
+impl<B: ConfigBackend> iobewi_ota::bootstrap::BootstrapStore for BootstrapConfigStore<'_, B> {
+    type Error = ();
+
+    async fn load_raw(&self) -> Result<Option<alloc::vec::Vec<u8>>, Self::Error> {
+        self.0
+            .load()
+            .await
+            .map(|snapshot| snapshot.map(|snapshot| snapshot.data))
+            .map_err(|_| ())
+    }
+
+    async fn commit_raw(&self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.0.commit(bytes).await.map(|_| ()).map_err(|_| ())
+    }
+}
+
+pub async fn bootstrap_state<B: ConfigBackend>(
+    space: &ConfigSpace<B>,
+) -> Result<BootstrapState, BootstrapError> {
+    iobewi_ota::bootstrap::state(&BootstrapConfigStore(space)).await
+}
+
+pub async fn begin_provisioning<B: ConfigBackend>(
+    space: &ConfigSpace<B>,
+) -> Result<(), BootstrapError> {
+    iobewi_ota::bootstrap::begin_provisioning(&BootstrapConfigStore(space)).await
+}
+
+pub async fn ready_for_agent<B: ConfigBackend>(
+    space: &ConfigSpace<B>,
+) -> Result<(), BootstrapError> {
+    iobewi_ota::bootstrap::ready_for_agent(&BootstrapConfigStore(space)).await
+}
+
+pub async fn production<B: ConfigBackend>(
+    space: &ConfigSpace<B>,
+) -> Result<(), BootstrapError> {
+    iobewi_ota::bootstrap::production(&BootstrapConfigStore(space)).await
+}
 use iobewi_esp_flash::SharedFlash;
 
 /// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
