@@ -5,13 +5,12 @@
 
 use embassy_executor::Spawner;
 use embassy_net::Stack;
-use esp_hal::peripherals::LPWR;
-use log::warn;
 
 use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_log_stream::EspLogTransport;
+use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
 use static_cell::StaticCell;
@@ -64,7 +63,7 @@ async fn run_log_stream(
 
 pub struct ApplicationSupervisor {
     spawner: Spawner,
-    lpwr: Option<LPWR<'static>>,
+    reboot: EspReboot,
     tls: crate::tls::TlsReferenceStatic,
     agent_config: &'static crate::agent::AgentConfigSpace,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
@@ -81,7 +80,7 @@ impl ApplicationSupervisor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         spawner: Spawner,
-        lpwr: LPWR<'static>,
+        reboot: EspReboot,
         tls: crate::tls::TlsReferenceStatic,
         agent_config: &'static crate::agent::AgentConfigSpace,
         app_config: &'static ConfigSpace<NvsConfigBackend>,
@@ -94,7 +93,7 @@ impl ApplicationSupervisor {
     ) -> Self {
         Self {
             spawner,
-            lpwr: Some(lpwr),
+            reboot,
             tls,
             agent_config,
             app_config,
@@ -113,10 +112,6 @@ impl ApplicationSupervisor {
             log::info!("supervisor: runtime IP services already started");
             return;
         }
-        let Some(lpwr) = self.lpwr.take() else {
-            warn!("supervisor: runtime IP services requested without LPWR");
-            return;
-        };
         self.ip_services_started = true;
 
         self.spawner
@@ -129,8 +124,7 @@ impl ApplicationSupervisor {
                 self.tls_config,
                 self.runtime_config,
                 self.ota_config,
-                self.spawner,
-                lpwr,
+                self.reboot.clone(),
                 self.tls,
             ).unwrap());
 
@@ -165,7 +159,7 @@ impl ApplicationSupervisor {
 /// produced an IP capability. Only the HTTPS provisioning UI is started.
 pub struct ProvisioningSupervisor {
     spawner: Spawner,
-    lpwr: Option<LPWR<'static>>,
+    reboot: EspReboot,
     tls: crate::tls::TlsReferenceStatic,
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace,
@@ -181,7 +175,7 @@ impl ProvisioningSupervisor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         spawner: Spawner,
-        lpwr: LPWR<'static>,
+        reboot: EspReboot,
         tls: crate::tls::TlsReferenceStatic,
         flash: &'static SharedFlash,
         agent_config: &'static crate::agent::AgentConfigSpace,
@@ -193,7 +187,7 @@ impl ProvisioningSupervisor {
     ) -> Self {
         Self {
             spawner,
-            lpwr: Some(lpwr),
+            reboot,
             tls,
             flash,
             agent_config,
@@ -214,10 +208,6 @@ impl crate::provisioning::NetworkReady<Stack<'static>> for ProvisioningSuperviso
             log::info!("supervisor: provisioning HTTPS already started");
             return;
         }
-        let Some(lpwr) = self.lpwr.take() else {
-            warn!("supervisor: provisioning requested without LPWR");
-            return;
-        };
         self.ip_services_started = true;
         self.spawner
             .spawn(crate::http::run_provisioning(
@@ -229,8 +219,7 @@ impl crate::provisioning::NetworkReady<Stack<'static>> for ProvisioningSuperviso
                 self.lifecycle_config,
                 self.ota_config,
                 self.factory_agent,
-                self.spawner,
-                lpwr,
+                self.reboot.clone(),
                 self.tls,
             ).unwrap());
     }

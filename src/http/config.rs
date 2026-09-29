@@ -9,22 +9,18 @@ use alloc::format;
 use alloc::string::String;
 use core::fmt::Write as _;
 
-use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use esp_hal::peripherals::LPWR;
 use picoserve::extract::Form;
 use picoserve::response::{File, Response, StatusCode};
 use iobewi_http::routing::{get, get_service};
 use iobewi_http::HttpRouter;
-use static_cell::StaticCell;
+use iobewi_ota::http::RebootPort;
 
 use crate::agent;
 use crate::ota::BootstrapState;
 use iobewi_esp_flash::SharedFlash;
 
-use super::{STYLE_CSS, html_escape, reboot_after_delay};
+use super::{STYLE_CSS, html_escape};
 
 const INDEX_TEMPLATE: &str = include_str!("index.html");
 const CONFIRM_TEMPLATE: &str = include_str!("confirm.html");
@@ -78,7 +74,7 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve(
+pub async fn serve<R: RebootPort + Clone + 'static>(
     stack: Stack<'static>,
     flash: &'static SharedFlash,
     agent_config: &'static agent::AgentConfigSpace,
@@ -87,20 +83,9 @@ pub async fn serve(
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
-    spawner: Spawner,
-    lpwr: LPWR<'static>,
+    reboot: R,
     tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
-    // `lpwr` (a non-`Copy` owned peripheral) must move into
-    // `reboot_after_delay` exactly once, but the `POST /` handler closure
-    // below is an `Fn` (picoserve may call it more than once across
-    // requests) -- parking it behind a lock it can `take()` from is simpler
-    // than trying to move it directly. Only one real consumer here (unlike
-    // `api::run`, which shares the same pattern across two endpoints).
-    static LPWR_CELL: StaticCell<Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>> =
-        StaticCell::new();
-    let lpwr_cell = &*LPWR_CELL.init(Mutex::new(Some(lpwr)));
-
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
         .route(
@@ -124,7 +109,13 @@ pub async fn serve(
             // reboots (the confirm() dialog in index.html warns about
             // that) -- a validation error re-serves the editable form
             // instead, so a typo doesn't lock the device out over nothing.
-            .post(move |Form(form): Form<ConfigForm>| async move {
+            .post(move |Form(form): Form<ConfigForm>| {
+                // Cloned per call (this closure must stay `Fn`, invoked once
+                // per request) -- `reboot` is a one-shot capability
+                // internally, so cloning it here is safe even though this
+                // handler only ever expects to actually trigger it once.
+                let reboot = reboot.clone();
+                async move {
                 let lifecycle = crate::ota::bootstrap_state(lifecycle_config).await;
                 if !matches!(
                     lifecycle,
@@ -215,18 +206,15 @@ pub async fn serve(
                     .with_content_type("text/html; charset=utf-8");
                 }
 
-                // `take()`s `None` on a second concurrent hit -- one
-                // pending reboot is enough, and there's only one `lpwr` to
-                // give out. The task's own delay gives this response time
-                // to actually reach the client first.
-                if let Some(lpwr) = lpwr_cell.lock().await.take()
-                    && let Ok(spawn_token) = reboot_after_delay(lpwr)
-                {
-                    spawner.spawn(spawn_token);
-                }
+                // The platform's reboot capability is its own one-shot
+                // guard -- calling it here is safe even under a second
+                // concurrent hit. Its own delay gives this response time to
+                // actually reach the client first.
+                reboot.schedule_reboot().await;
 
                 Response::ok(CONFIRM_TEMPLATE.replace("{{TOKEN}}", &html_escape(&token)))
                     .with_content_type("text/html; charset=utf-8")
+                }
             }),
         );
 

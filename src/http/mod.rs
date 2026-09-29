@@ -11,15 +11,12 @@
 
 use alloc::string::String;
 
-use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_time::{Duration, Timer};
-use esp_hal::peripherals::LPWR;
-use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use picoserve::response::StatusCode;
 pub(super) use iobewi_http::json::{json_error, json_ok, JsonResponse};
 use iobewi_http::routing::PathRouter;
 use iobewi_http::HttpRouter;
+use iobewi_esp_reboot::EspReboot;
 
 use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
@@ -30,6 +27,11 @@ pub mod config;
 
 /// Runtime administrative API task. Provisioning has a separate entrypoint
 /// and is linked only by the disposable init image.
+///
+/// Stays a concrete (non-generic) task -- embassy tasks can't be generic --
+/// but the actual route-building in [`api::serve`] is generic over
+/// `RebootPort`; this only ever forwards the platform's concrete
+/// [`EspReboot`] handle, never knows how it reboots.
 #[embassy_executor::task]
 pub async fn run(
     stack: Stack<'static>,
@@ -40,8 +42,7 @@ pub async fn run(
     tls_config: &'static crate::tls::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
-    spawner: Spawner,
-    lpwr: LPWR<'static>,
+    reboot: EspReboot,
     tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
     api::serve(
@@ -53,8 +54,7 @@ pub async fn run(
         tls_config,
         runtime_config,
         ota_config,
-        spawner,
-        lpwr,
+        reboot,
         tls,
     )
     .await
@@ -71,8 +71,7 @@ pub async fn run_provisioning(
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
-    spawner: Spawner,
-    lpwr: LPWR<'static>,
+    reboot: EspReboot,
     tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
     config::serve(
@@ -84,8 +83,7 @@ pub async fn run_provisioning(
         lifecycle_config,
         ota_config,
         factory_agent,
-        spawner,
-        lpwr,
+        reboot,
         tls,
     )
     .await
@@ -116,31 +114,6 @@ pub(super) fn html_escape(s: &str) -> String {
 /// {"error":"unauthorized"}`).
 pub(super) fn unauthorized() -> JsonResponse {
     json_error(StatusCode::UNAUTHORIZED, "{\"error\":\"unauthorized\"}")
-}
-
-/// Gives the response time to actually reach the socket before resetting --
-/// calling a reset directly from the request handler would cut the
-/// connection before picoserve ever writes the confirmation page.
-///
-/// Uses the RTC watchdog (`ResetSystem`, the broadest of the three reset
-/// scopes esp-hal exposes) instead of `esp_hal::system::software_reset()`.
-/// That function only does a "digital core" reset, which on this chip
-/// leaves the native USB-Serial-JTAG peripheral's link state untouched: the
-/// host still sees the old USB session, the freshly-booted firmware expects
-/// a new one, and Improv Serial stops responding correctly until a real
-/// (EN-pin/RTS-triggered) reset -- exactly what ESP Web Tools itself always
-/// does when it resets the board, which is why that path never showed this.
-#[embassy_executor::task]
-pub(super) async fn reboot_after_delay(lpwr: LPWR<'static>) -> ! {
-    Timer::after(Duration::from_millis(500)).await;
-    let mut rtc = Rtc::new(lpwr);
-    rtc.rwdt
-        .set_timeout(RwdtStage::Stage0, esp_hal::time::Duration::from_millis(100));
-    rtc.rwdt.set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
-    rtc.rwdt.enable();
-    loop {
-        Timer::after(Duration::from_secs(10)).await;
-    }
 }
 
 /// The runtime and provisioning routers share the IOBEWI HTTP server.

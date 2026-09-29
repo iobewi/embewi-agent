@@ -8,15 +8,11 @@
 use alloc::format;
 use alloc::string::String;
 
-use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use esp_hal::peripherals::LPWR;
 use picoserve::response::StatusCode;
 use iobewi_http::routing::{get, post};
 use iobewi_http::HttpRouter;
-use static_cell::StaticCell;
+use iobewi_ota::http::RebootPort;
 
 use crate::agent;
 use iobewi_config_space::ConfigSpace;
@@ -24,31 +20,13 @@ use crate::ota;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 
-use super::{json_error, json_ok, reboot_after_delay, unauthorized};
+use super::{json_error, json_ok, unauthorized};
 
 mod ota_write;
 use ota_write::AgentOtaBackend;
 
 /// Public API namespace selected by EmBewi, independent of service routes.
 pub(crate) const API_PREFIX: &str = "/v1alpha1";
-
-type RebootCell = Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>;
-
-#[derive(Clone)]
-struct AgentOtaReboot {
-    cell: &'static RebootCell,
-    spawner: Spawner,
-}
-
-impl iobewi_ota::http::RebootPort for AgentOtaReboot {
-    async fn schedule_reboot(&self) {
-        if let Some(lpwr) = self.cell.lock().await.take()
-            && let Ok(spawn_token) = reboot_after_delay(lpwr)
-        {
-            self.spawner.spawn(spawn_token);
-        }
-    }
-}
 
 /// Application authorization and ESP persistence ports for the portable TLS API.
 struct AgentTlsProvisioningBackend {
@@ -75,7 +53,7 @@ impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::config::serve`]'s instead
 /// of both being reserved simultaneously and permanently.
-pub async fn serve(
+pub async fn serve<R: RebootPort + Clone + 'static>(
     stack: Stack<'static>,
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
@@ -84,18 +62,9 @@ pub async fn serve(
     tls_config: &'static crate::tls::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
-    spawner: Spawner,
-    lpwr: LPWR<'static>,
+    reboot: R,
     tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
-    // `lpwr` (a non-`Copy` owned peripheral) must move into
-    // `reboot_after_delay` exactly once, but both `/reboot` and
-    // `/ota/activate` can trigger it -- parking it behind a lock either can
-    // `take()` from is simpler than trying to move it into two closures.
-    static LPWR_CELL: StaticCell<Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>> =
-        StaticCell::new();
-    let lpwr_cell = &*LPWR_CELL.init(Mutex::new(Some(lpwr)));
-
     let api_routes = HttpRouter::new()
         .route(
             "/info",
@@ -171,19 +140,26 @@ pub async fn serve(
         )
         .route(
             "/reboot",
-            post(move |agent::Bearer(token): agent::Bearer| async move {
-                if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
-                    return unauthorized();
+            post({
+                // Cloned once here, up front, so the original `reboot` stays
+                // available below for `/ota/activate`'s own `.nest(...)`.
+                let reboot = reboot.clone();
+                move |agent::Bearer(token): agent::Bearer| {
+                    // Cloned again per call (this closure must stay `Fn`,
+                    // invoked once per request): `reboot` is a one-shot
+                    // capability internally, so cloning it freely here and
+                    // for `/ota/activate` below is safe -- whichever call
+                    // reaches `schedule_reboot()` first is the one that
+                    // actually reboots the device.
+                    let reboot = reboot.clone();
+                    async move {
+                        if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
+                            return unauthorized();
+                        }
+                        reboot.schedule_reboot().await;
+                        json_ok(String::from("{\"status\":\"rebooting\"}"))
+                    }
                 }
-                // Same one-shot `lpwr_cell` as `/ota/activate` below --
-                // whichever fires first gets to actually reboot the
-                // device; there's only one `lpwr` to hand out either way.
-                if let Some(lpwr) = lpwr_cell.lock().await.take()
-                    && let Ok(spawn_token) = reboot_after_delay(lpwr)
-                {
-                    spawner.spawn(spawn_token);
-                }
-                json_ok(String::from("{\"status\":\"rebooting\"}"))
             }),
         )
         .route(
@@ -212,10 +188,10 @@ pub async fn serve(
             }),
         )
         // OTA owns its relative routes. EmBewi supplies only the platform
-        // backend and the same one-shot reboot peripheral used by /reboot.
+        // backend and the same reboot capability used by /reboot.
         .nest("/ota", iobewi_ota::http::routes(
             AgentOtaBackend { flash, ota_config, agent_config },
-            AgentOtaReboot { cell: lpwr_cell, spawner },
+            reboot,
         ))
         // The TLS service owns authentication and the wire contract; the
         // application only mounts its routes on the shared HTTPS server.
