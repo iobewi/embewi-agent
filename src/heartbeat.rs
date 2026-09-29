@@ -256,7 +256,7 @@ async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics>(
         config_generation: runtime_config.generation().await,
         reason,
         uptime_ms: Instant::now().as_millis(),
-        heap_free: esp_alloc::HEAP.free() as u32,
+        heap_free: diagnostics.heap_free_bytes(),
         temp_celsius: TEMP_UNAVAILABLE,
         task_hwm_min: diagnostics.stack_headroom_bytes(),
     };
