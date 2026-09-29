@@ -9,7 +9,6 @@ use alloc::format;
 use alloc::string::String;
 use core::fmt::Write as _;
 
-use embassy_net::Stack;
 use picoserve::extract::Form;
 use picoserve::response::{File, Response, StatusCode};
 use iobewi_http::routing::{get, get_service};
@@ -74,17 +73,15 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve<R: RebootPort + Clone + 'static>(
-    stack: Stack<'static>,
+pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static>(
+    listener: &mut L,
     flash: &'static SharedFlash,
     agent_config: &'static agent::AgentConfigSpace,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
     reboot: R,
-    tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
@@ -218,5 +215,5 @@ pub async fn serve<R: RebootPort + Clone + 'static>(
             }),
         );
 
-    super::serve(stack, tls_config, tls, &router).await
+    super::serve(listener, &router).await
 }

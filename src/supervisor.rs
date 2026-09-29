@@ -9,6 +9,7 @@ use embassy_net::Stack;
 use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
+use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_log_stream::EspLogTransport;
 use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
@@ -59,6 +60,85 @@ async fn run_log_stream(
     let config = AgentLogConfig { space: agent_config };
     let transport = EspLogTransport { stack, tls, tls_config, clock_is_set: crate::time::is_set };
     iobewi_log_stream::run(&config, &transport).await
+}
+
+/// Constructs the platform's `EspTlsListener` (the ESP implementation of the
+/// portable `iobewi_https::TlsListener`) and calls into the generic,
+/// portable `http::api::serve` -- embassy tasks can't themselves be
+/// generic, so the platform's concrete listener type is chosen here, at the
+/// composition root, exactly like `run_heartbeat`/`run_log_stream` above.
+/// TLS identity management (`tls_config`) is still an ESP composition
+/// concern for now; only which listener implementation backs the router has
+/// moved out of the portable HTTP layer.
+#[embassy_executor::task]
+async fn run_http_api(
+    stack: Stack<'static>,
+    flash: &'static SharedFlash,
+    nvs_backend: &'static NvsConfigBackend,
+    agent_config: &'static crate::agent::AgentConfigSpace,
+    app_config: &'static ConfigSpace<NvsConfigBackend>,
+    tls_config: &'static crate::tls::TlsConfigSpace,
+    runtime_config: &'static crate::runtime_config::RuntimeConfig,
+    ota_config: &'static crate::ota::OtaConfigSpace,
+    reboot: EspReboot,
+    tls: crate::tls::TlsReferenceStatic,
+) -> ! {
+    let mut rx = [0u8; 1024];
+    let mut tx = [0u8; 1024];
+    let mut listener = EspTlsListener::new(
+        stack,
+        tls,
+        || crate::tls::server_config(tls_config),
+        &mut rx,
+        &mut tx,
+    );
+    crate::http::api::serve(
+        &mut listener,
+        flash,
+        nvs_backend,
+        agent_config,
+        app_config,
+        tls_config,
+        runtime_config,
+        ota_config,
+        reboot,
+    ).await
+}
+
+/// Same composition role as [`run_http_api`], for the disposable init
+/// image's provisioning surface.
+#[embassy_executor::task]
+async fn run_http_provisioning(
+    stack: Stack<'static>,
+    flash: &'static SharedFlash,
+    agent_config: &'static crate::agent::AgentConfigSpace,
+    hardware_config: &'static crate::hardware::HardwareConfigSpace,
+    tls_config: &'static crate::tls::TlsConfigSpace,
+    lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
+    ota_config: &'static crate::ota::OtaConfigSpace,
+    factory_agent: crate::ota::PreloadedAgent,
+    reboot: EspReboot,
+    tls: crate::tls::TlsReferenceStatic,
+) -> ! {
+    let mut rx = [0u8; 1024];
+    let mut tx = [0u8; 1024];
+    let mut listener = EspTlsListener::new(
+        stack,
+        tls,
+        || crate::tls::server_config(tls_config),
+        &mut rx,
+        &mut tx,
+    );
+    crate::http::config::serve(
+        &mut listener,
+        flash,
+        agent_config,
+        hardware_config,
+        lifecycle_config,
+        ota_config,
+        factory_agent,
+        reboot,
+    ).await
 }
 
 pub struct ApplicationSupervisor {
@@ -115,7 +195,7 @@ impl ApplicationSupervisor {
         self.ip_services_started = true;
 
         self.spawner
-            .spawn(crate::http::run(
+            .spawn(run_http_api(
                 stack,
                 self.flash,
                 self.nvs_backend,
@@ -210,7 +290,7 @@ impl crate::provisioning::NetworkReady<Stack<'static>> for ProvisioningSuperviso
         }
         self.ip_services_started = true;
         self.spawner
-            .spawn(crate::http::run_provisioning(
+            .spawn(run_http_provisioning(
                 network,
                 self.flash,
                 self.agent_config,

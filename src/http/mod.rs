@@ -11,83 +11,13 @@
 
 use alloc::string::String;
 
-use embassy_net::Stack;
 use picoserve::response::StatusCode;
 pub(super) use iobewi_http::json::{json_error, json_ok, JsonResponse};
 use iobewi_http::routing::PathRouter;
 use iobewi_http::HttpRouter;
-use iobewi_esp_reboot::EspReboot;
-
-use iobewi_config_space::ConfigSpace;
-use iobewi_esp_config_space::NvsConfigBackend;
-use iobewi_esp_flash::SharedFlash;
 
 pub mod api;
 pub mod config;
-
-/// Runtime administrative API task. Provisioning has a separate entrypoint
-/// and is linked only by the disposable init image.
-///
-/// Stays a concrete (non-generic) task -- embassy tasks can't be generic --
-/// but the actual route-building in [`api::serve`] is generic over
-/// `RebootPort`; this only ever forwards the platform's concrete
-/// [`EspReboot`] handle, never knows how it reboots.
-#[embassy_executor::task]
-pub async fn run(
-    stack: Stack<'static>,
-    flash: &'static SharedFlash,
-    nvs_backend: &'static NvsConfigBackend,
-    agent_config: &'static crate::agent::AgentConfigSpace,
-    app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    runtime_config: &'static crate::runtime_config::RuntimeConfig,
-    ota_config: &'static crate::ota::OtaConfigSpace,
-    reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
-) -> ! {
-    api::serve(
-        stack,
-        flash,
-        nvs_backend,
-        agent_config,
-        app_config,
-        tls_config,
-        runtime_config,
-        ota_config,
-        reboot,
-        tls,
-    )
-    .await
-}
-
-/// HTTPS provisioning surface used only by embewi-init.
-#[embassy_executor::task]
-pub async fn run_provisioning(
-    stack: Stack<'static>,
-    flash: &'static SharedFlash,
-    agent_config: &'static crate::agent::AgentConfigSpace,
-    hardware_config: &'static crate::hardware::HardwareConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
-    ota_config: &'static crate::ota::OtaConfigSpace,
-    factory_agent: crate::ota::PreloadedAgent,
-    reboot: EspReboot,
-    tls: crate::tls::TlsReferenceStatic,
-) -> ! {
-    config::serve(
-        stack,
-        flash,
-        agent_config,
-        hardware_config,
-        tls_config,
-        lifecycle_config,
-        ota_config,
-        factory_agent,
-        reboot,
-        tls,
-    )
-    .await
-}
 
 // Shared with web/index.html (the flashing page), so both look consistent
 // -- one canonical file instead of a copy that could drift.
@@ -116,19 +46,14 @@ pub(super) fn unauthorized() -> JsonResponse {
     json_error(StatusCode::UNAUTHORIZED, "{\"error\":\"unauthorized\"}")
 }
 
-/// The runtime and provisioning routers share the IOBEWI HTTP server.
-/// The ESP listener supplies authenticated TLS sockets; the application
-/// supplies only its identity store and routes.
-pub(super) async fn serve(
-    stack: Stack<'static>,
-    tls_config: &'static crate::tls::TlsConfigSpace,
-    tls: crate::tls::TlsReferenceStatic,
+/// The runtime and provisioning routers share the IOBEWI HTTP server. The
+/// caller supplies an already-constructed, already-authenticated TLS
+/// listener -- this layer knows only "serve this router over TLS
+/// connections accepted by `listener`", never which concrete TLS stack or
+/// hardware produced them.
+pub(super) async fn serve<L: iobewi_https::TlsListener>(
+    listener: &mut L,
     router: &HttpRouter<impl PathRouter>,
 ) -> ! {
-    iobewi_esp_https::serve(
-        stack,
-        tls,
-        || crate::tls::server_config(tls_config),
-        router,
-    ).await
+    iobewi_https::serve_forever(listener, router).await
 }

@@ -8,7 +8,6 @@
 use alloc::format;
 use alloc::string::String;
 
-use embassy_net::Stack;
 use picoserve::response::StatusCode;
 use iobewi_http::routing::{get, post};
 use iobewi_http::HttpRouter;
@@ -53,8 +52,8 @@ impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::config::serve`]'s instead
 /// of both being reserved simultaneously and permanently.
-pub async fn serve<R: RebootPort + Clone + 'static>(
-    stack: Stack<'static>,
+pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static>(
+    listener: &mut L,
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static agent::AgentConfigSpace,
@@ -63,7 +62,6 @@ pub async fn serve<R: RebootPort + Clone + 'static>(
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: R,
-    tls: crate::tls::TlsReferenceStatic,
 ) -> ! {
     let api_routes = HttpRouter::new()
         .route(
@@ -211,5 +209,5 @@ pub async fn serve<R: RebootPort + Clone + 'static>(
         );
     let router = HttpRouter::new().nest(API_PREFIX, api_routes);
 
-    super::serve(stack, tls_config, tls, &router).await
+    super::serve(listener, &router).await
 }
