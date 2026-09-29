@@ -33,7 +33,7 @@ fault-injection-freeze = []
 
 [dependencies]
 # IOBEWI transactional OTA service and ESP backend.
-iobewi-ota = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c", features = ["http", "runtime"] }
+iobewi-ota = { git = "https://github.com/iobewi/iobewi", rev = "d61b9265b92912d034a31e346dbf261d9488b8e5", features = ["http", "runtime"] }
 iobewi-http = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c" }
 iobewi-tls = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c", features = ["http"] }
 iobewi-wifi = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c" }
@@ -44,7 +44,7 @@ iobewi-ntp = { git = "https://github.com/iobewi/iobewi", rev = "ee21b27fd62617a2
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c4" }
 # One process-wide physical flash owner. No NVS or OTA semantics live here.
 iobewi-esp-flash = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", package = "iobewi-esp-flash", features = ["esp32s3"] }
-iobewi-esp-ota = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", package = "iobewi-esp-ota", features = ["esp32s3", "shared-flash"] }
+iobewi-esp-ota = { git = "https://github.com/iobewi/iobewi-esp", rev = "22bca3933b761262e15ad04949e49982b60a6022", package = "iobewi-esp-ota", features = ["esp32s3", "shared-flash"] }
 # ESP radio implementation for the portable IOBEWI Wi-Fi service.
 iobewi-esp-wifi = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", package = "iobewi-esp-wifi", features = ["esp32s3"] }
 iobewi-esp-log-stream = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", features = ["esp32s3"] }
@@ -117,8 +117,8 @@ subtle       = { version = "2", default-features = false }
 # Races the self-check against contrat §3's bounded deadline.
 embassy-futures = "0.1"
 # Generic isolated configuration spaces and their ESP/NVS backend.
-iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", package = "iobewi-esp-config-space", features = ["esp32s3"] }
+iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "d61b9265b92912d034a31e346dbf261d9488b8e5" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/iobewi-esp", rev = "22bca3933b761262e15ad04949e49982b60a6022", package = "iobewi-esp-config-space", features = ["esp32s3"] }
 # ESP crypto and networking for the IOBEWI TLS identity service.
 iobewi-esp-tls = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", package = "iobewi-esp-tls", features = ["esp32s3", "picoserve", "service"] }
 iobewi-esp-https = { git = "https://github.com/iobewi/iobewi-esp", rev = "642ab4b58b3ff58f1360d9d2663d8eca78b61f9b", features = ["esp32s3"] }
