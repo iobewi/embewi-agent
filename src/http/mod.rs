@@ -21,6 +21,7 @@ pub(super) use iobewi_http::json::{json_error, json_ok, JsonResponse};
 use iobewi_http::routing::PathRouter;
 use iobewi_http::HttpRouter;
 
+use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 
@@ -35,7 +36,7 @@ pub async fn run(
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static crate::agent::AgentConfigSpace,
-    app_config: &'static crate::app_config::AppConfigSpace,
+    app_config: &'static ConfigSpace<NvsConfigBackend>,
     tls_config: &'static crate::tls::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
