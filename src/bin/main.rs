@@ -19,7 +19,7 @@ use embewi_agent_esp::app_config;
 use embewi_agent_esp::hardware;
 use embewi_agent_esp::status;
 use embewi_agent_esp::tls;
-use iobewi_config_space::ConfigManager;
+use iobewi_config_space::{ConfigManager, ConfigSpace};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embewi_agent_esp::wifi::{self, WifiManager};
 use embewi_agent_esp::runtime_config;
@@ -107,7 +107,7 @@ async fn main(spawner: Spawner) -> ! {
     let app_config = config_manager
         .claim("app", app_config::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for app config");
-    static APP_CONFIG: StaticCell<app_config::AppConfigSpace> = StaticCell::new();
+    static APP_CONFIG: StaticCell<ConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let app_config = &*APP_CONFIG.init(app_config);
 
     let agent_config = config_manager
