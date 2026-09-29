@@ -117,9 +117,9 @@ async fn main(spawner: Spawner) -> ! {
     let agent_config = &*AGENT_CONFIG.init(agent_config);
 
     let lifecycle_config = config_manager
-        .claim("lifecycle", embewi_agent_esp::lifecycle::CONFIG_BUDGET)
+        .claim("lifecycle", embewi_agent_esp::ota::BOOTSTRAP_CONFIG_BUDGET)
         .expect("NVS capacity insufficient for lifecycle state");
-    static LIFECYCLE_CONFIG: StaticCell<embewi_agent_esp::lifecycle::LifecycleConfigSpace> =
+    static LIFECYCLE_CONFIG: StaticCell<embewi_agent_esp::ota::BootstrapConfigSpace> =
         StaticCell::new();
     let lifecycle_config = &*LIFECYCLE_CONFIG.init(lifecycle_config);
 
@@ -189,7 +189,7 @@ async fn main(spawner: Spawner) -> ! {
     )
     .await;
 
-    let lifecycle = embewi_agent_esp::lifecycle::state(lifecycle_config)
+    let lifecycle = embewi_agent_esp::ota::bootstrap_state(lifecycle_config)
         .await
         .expect("invalid Embewi lifecycle");
 
@@ -211,7 +211,7 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     match lifecycle {
-        embewi_agent_esp::lifecycle::LifecycleState::ReadyForAgent => {
+        embewi_agent_esp::ota::BootstrapState::ReadyForAgent => {
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
                 embewi_agent_esp::ota::confirm_pending(
                     flash,
@@ -223,11 +223,11 @@ async fn main(spawner: Spawner) -> ! {
             // If power failed after IOBEWI OTA confirmation but before this small
             // application bookkeeping write, the next boot reaches this same
             // Stable + ReadyForAgent path and completes it idempotently.
-            embewi_agent_esp::lifecycle::production(lifecycle_config)
+            embewi_agent_esp::ota::production(lifecycle_config)
                 .await
                 .expect("couldn't enter Production lifecycle");
         }
-        embewi_agent_esp::lifecycle::LifecycleState::Production => {
+        embewi_agent_esp::ota::BootstrapState::Production => {
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
                 embewi_agent_esp::ota::confirm_pending(
                     flash,
@@ -237,8 +237,8 @@ async fn main(spawner: Spawner) -> ! {
                 .await;
             }
         }
-        embewi_agent_esp::lifecycle::LifecycleState::Factory
-        | embewi_agent_esp::lifecycle::LifecycleState::Provisioning => {
+        embewi_agent_esp::ota::BootstrapState::Factory
+        | embewi_agent_esp::ota::BootstrapState::Provisioning => {
             agent::set_state(agent::State::Failed);
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
                 embewi_agent_esp::ota::reject_pending(flash).await;
