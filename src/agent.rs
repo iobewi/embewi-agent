@@ -229,7 +229,7 @@ pub async fn rotate_token(space: &AgentConfigSpace, new_token: &str) -> Result<(
 
 /// The app service's TCP port (contrat §4, `POST /app/port`), owned by the
 /// dedicated application ConfigSpace.
-pub async fn app_port(space: &crate::app_config::AppConfigSpace) -> u16 {
+pub async fn app_port(space: &ConfigSpace<NvsConfigBackend>) -> u16 {
     crate::app_config::port(space).await
 }
 
@@ -341,7 +341,7 @@ pub struct Info {
 pub async fn info(
     flash: &SharedFlash,
     agent_config: &AgentConfigSpace,
-    app_config: &crate::app_config::AppConfigSpace,
+    app_config: &ConfigSpace<NvsConfigBackend>,
     runtime_config: &crate::runtime_config::RuntimeConfig,
     ota_config: &crate::ota::OtaConfigSpace,
 ) -> Info {
