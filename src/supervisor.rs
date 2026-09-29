@@ -8,6 +8,7 @@ use embassy_net::Stack;
 use esp_hal::peripherals::LPWR;
 use log::warn;
 
+use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_log_stream::EspLogTransport;
@@ -44,7 +45,7 @@ pub struct ApplicationSupervisor {
     lpwr: Option<LPWR<'static>>,
     tls: crate::tls::TlsReferenceStatic,
     agent_config: &'static crate::agent::AgentConfigSpace,
-    app_config: &'static crate::app_config::AppConfigSpace,
+    app_config: &'static ConfigSpace<NvsConfigBackend>,
     tls_config: &'static crate::tls::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -59,7 +60,7 @@ impl ApplicationSupervisor {
         lpwr: LPWR<'static>,
         tls: crate::tls::TlsReferenceStatic,
         agent_config: &'static crate::agent::AgentConfigSpace,
-        app_config: &'static crate::app_config::AppConfigSpace,
+        app_config: &'static ConfigSpace<NvsConfigBackend>,
         tls_config: &'static crate::tls::TlsConfigSpace,
         runtime_config: &'static crate::runtime_config::RuntimeConfig,
         ota_config: &'static crate::ota::OtaConfigSpace,
