@@ -268,7 +268,7 @@ async fn main(spawner: Spawner) -> ! {
     let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
     let mut wifi = WifiManager::new(transport, wifi_config);
     if wifi.reconnect_saved().await {
-        if let Some(stack) = wifi.ip_stack() {
+        if let Some(stack) = wifi.network_handle() {
             supervisor.on_ip_ready(stack);
         }
     }

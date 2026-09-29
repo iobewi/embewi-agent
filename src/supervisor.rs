@@ -206,7 +206,10 @@ impl ProvisioningSupervisor {
         }
     }
 
-    pub fn on_ip_ready(&mut self, stack: Stack<'static>) {
+}
+
+impl crate::provisioning::NetworkReady<Stack<'static>> for ProvisioningSupervisor {
+    fn on_network_ready(&mut self, network: Stack<'static>) {
         if self.ip_services_started {
             log::info!("supervisor: provisioning HTTPS already started");
             return;
@@ -218,7 +221,7 @@ impl ProvisioningSupervisor {
         self.ip_services_started = true;
         self.spawner
             .spawn(crate::http::run_provisioning(
-                stack,
+                network,
                 self.flash,
                 self.agent_config,
                 self.hardware_config,

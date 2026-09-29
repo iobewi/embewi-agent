@@ -13,9 +13,8 @@ use log::{info, warn};
 
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
 use crate::Status;
-use crate::supervisor::ProvisioningSupervisor;
-use crate::wifi::WifiManager;
 use iobewi_indicator::StatusIndicator;
+use iobewi_wifi::WifiProvisioning;
 
 /// Device identity for Improv's `GetDeviceInfo` RPC. Owned by the platform
 /// composition root -- how the chip name or a per-board device name suffix
@@ -28,22 +27,35 @@ pub struct DeviceInfo<'a> {
     pub device_name: &'a str,
 }
 
-/// Serves Improv Serial forever. Generic over the serial transport and the
-/// platform's status indicator: this module expresses only logical states
-/// (`Status::*`), never a colour or a peripheral -- see
-/// `iobewi_indicator::StatusIndicator`.
-pub async fn run<R, W, I>(
+/// Application port: "an IP-capable network is now available; start
+/// whatever services depend on it." Not a hardware abstraction competing
+/// with IOBEWI -- this is application orchestration (provisioning workflow
+/// -> service supervisor), so it lives here rather than in `iobewi-wifi`.
+/// `N` is whatever opaque network handle the Wi-Fi capability in use
+/// produces (`iobewi_wifi::WifiProvisioning::NetworkHandle`); this module
+/// never inspects it, only forwards it.
+pub trait NetworkReady<N> {
+    fn on_network_ready(&mut self, network: N);
+}
+
+/// Serves Improv Serial forever. Generic over the serial transport, the
+/// Wi-Fi capability, the platform's status indicator, and the application's
+/// network-ready port: this module has no idea what the real Wi-Fi backend
+/// is -- see `iobewi_wifi::WifiProvisioning`.
+pub async fn run<R, T, WifiT, I, S>(
     mut rx: R,
-    mut tx: W,
-    mut wifi: WifiManager,
-    mut supervisor: ProvisioningSupervisor,
+    mut tx: T,
+    mut wifi: WifiT,
+    mut services: S,
     indicator: &I,
     device_info: &DeviceInfo<'_>,
 ) -> !
 where
     R: Read,
-    W: Write,
+    T: Write,
+    WifiT: WifiProvisioning,
     I: StatusIndicator,
+    S: NetworkReady<WifiT::NetworkHandle>,
 {
     let mut parser = Parser::new();
     let mut state = if wifi.is_online() {
@@ -66,14 +78,14 @@ where
         };
         for &byte in &buffer[..read] {
             if let Some(command) = parser.feed(byte) {
-                handle(command, &mut tx, &mut state, &mut wifi, &mut supervisor, indicator, device_info).await;
+                handle(command, &mut tx, &mut state, &mut wifi, &mut services, indicator, device_info).await;
             }
         }
     }
 }
 
 /// What the LED shows once a transient action (a scan) is over.
-fn idle_status(wifi: &WifiManager) -> Status {
+fn idle_status<WifiT: WifiProvisioning>(wifi: &WifiT) -> Status {
     if wifi.is_online() {
         Status::Online
     } else {
@@ -81,7 +93,7 @@ fn idle_status(wifi: &WifiManager) -> Status {
     }
 }
 
-async fn send<W: Write>(tx: &mut W, frame: &[u8]) {
+async fn send<T: Write>(tx: &mut T, frame: &[u8]) {
     if let Err(e) = tx.write_all(frame).await {
         warn!("serial write failed: {e:?}");
     }
@@ -91,18 +103,18 @@ async fn send<W: Write>(tx: &mut W, frame: &[u8]) {
 /// is up. ESP Web Tools' client reads this from the first string in a
 /// WifiSettings or (if already provisioned) GetCurrentState RPC response
 /// and shows it as a "Visit Device" link.
-fn next_url(wifi: &WifiManager) -> alloc::string::String {
-    wifi.ip()
-        .map(|ip| alloc::format!("https://{ip}/"))
+fn next_url<WifiT: WifiProvisioning>(wifi: &WifiT) -> alloc::string::String {
+    wifi.address()
+        .map(|address| alloc::format!("https://{address}/"))
         .unwrap_or_default()
 }
 
-async fn handle<W: Write, I: StatusIndicator>(
+async fn handle<T: Write, WifiT: WifiProvisioning, I: StatusIndicator, S: NetworkReady<WifiT::NetworkHandle>>(
     command: ParsedCommand,
-    tx: &mut W,
+    tx: &mut T,
     state: &mut State,
-    wifi: &mut WifiManager,
-    supervisor: &mut ProvisioningSupervisor,
+    wifi: &mut WifiT,
+    services: &mut S,
     indicator: &I,
     device_info: &DeviceInfo<'_>,
 ) {
@@ -180,10 +192,10 @@ async fn handle<W: Write, I: StatusIndicator>(
             send(tx, &improv::state_frame(*state)).await;
 
             if wifi.provision(&settings.ssid, settings.password).await {
-                if let Some(stack) = wifi.ip_stack() {
-                    supervisor.on_ip_ready(stack);
+                if let Some(network) = wifi.network_handle() {
+                    services.on_network_ready(network);
                 } else {
-                    warn!("Wi-Fi reported connected without an IP stack");
+                    warn!("Wi-Fi reported connected without a network handle");
                 }
                 *state = State::Provisioned;
                 indicator.set(Status::Online);

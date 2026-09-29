@@ -18,6 +18,7 @@ use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use static_cell::StaticCell;
 
 use embewi_agent_esp::{agent, hardware, ota, provisioning, tls, wifi};
+use embewi_agent_esp::provisioning::NetworkReady;
 use embewi_agent_esp::wifi::WifiManager;
 use iobewi_esp_indicator::EspStatusIndicator;
 
@@ -169,8 +170,8 @@ async fn main(spawner: Spawner) -> ! {
     let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
     let mut wifi = WifiManager::new(transport, wifi_config);
     if wifi.reconnect_saved().await {
-        if let Some(stack) = wifi.ip_stack() {
-            supervisor.on_ip_ready(stack);
+        if let Some(network) = wifi.network_handle() {
+            supervisor.on_network_ready(network);
         }
     }
 
