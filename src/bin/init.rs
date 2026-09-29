@@ -6,6 +6,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+extern crate alloc;
+
 use iobewi_config_space::ConfigManager;
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embassy_executor::Spawner;
@@ -175,9 +177,29 @@ async fn main(spawner: Spawner) -> ! {
     let (rx, tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
         .into_async()
         .split();
+
+    // Device identity for Improv's GetDeviceInfo RPC is entirely a
+    // composition-root concern (efuse MAC, chip metadata) -- `provisioning`
+    // itself only ever encodes the `DeviceInfo` it's handed. Device name =
+    // a fixed prefix + a suffix from the efuse-burned MAC address, unique
+    // per physical board. Matches the convention seen in ESPHome's own
+    // Improv device info (e.g. "...-d5eb28").
+    let mac = esp_hal::efuse::base_mac_address();
+    let mac = mac.as_bytes();
+    let device_name = alloc::format!("embewi-init-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5]);
+    let device_info = provisioning::DeviceInfo {
+        firmware_name: "embewi-init",
+        firmware_version: env!("CARGO_PKG_VERSION"),
+        // Not a literal: tracks whichever chip `esp-hal`'s own feature flags
+        // (in Cargo.toml) are actually built for, so it can't drift when the
+        // target changes -- e.g. from ESP32-C3 to ESP32-S3.
+        chip_name: esp_metadata_generated::chip_pretty!(),
+        device_name: &device_name,
+    };
+
     // No LED task is spawned in this disposable init image (unchanged from
     // before this capability existed) -- the indicator still needs a
     // concrete implementation to satisfy `provisioning::run`'s generic
     // bound, it just has nothing rendering what it's told.
-    provisioning::run(rx, tx, wifi, supervisor, &EspStatusIndicator).await
+    provisioning::run(rx, tx, wifi, supervisor, &EspStatusIndicator, &device_info).await
 }
