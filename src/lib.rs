@@ -10,7 +10,6 @@ pub mod app_config;
 pub mod hardware;
 pub mod heartbeat;
 pub mod http;
-pub mod lifecycle;
 pub mod ota;
 pub mod provisioning;
 pub mod runtime_config;

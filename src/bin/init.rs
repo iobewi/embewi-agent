@@ -15,7 +15,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use static_cell::StaticCell;
 
-use embewi_agent_esp::{agent, hardware, lifecycle, ota, provisioning, tls, wifi};
+use embewi_agent_esp::{agent, hardware, ota, provisioning, tls, wifi};
 use embewi_agent_esp::wifi::WifiManager;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -87,9 +87,9 @@ async fn main(spawner: Spawner) -> ! {
     let agent_config = &*AGENT_CONFIG.init(agent_config);
 
     let lifecycle_config = config_manager
-        .claim("lifecycle", lifecycle::CONFIG_BUDGET)
+        .claim("lifecycle", ota::BOOTSTRAP_CONFIG_BUDGET)
         .expect("NVS capacity insufficient for lifecycle state");
-    static LIFECYCLE_CONFIG: StaticCell<lifecycle::LifecycleConfigSpace> = StaticCell::new();
+    static LIFECYCLE_CONFIG: StaticCell<ota::BootstrapConfigSpace> = StaticCell::new();
     let lifecycle_config = &*LIFECYCLE_CONFIG.init(lifecycle_config);
 
     let ota_config = config_manager
@@ -110,22 +110,22 @@ async fn main(spawner: Spawner) -> ! {
         .claim("wifi", wifi::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for Wi-Fi config");
 
-    match lifecycle::state(lifecycle_config)
+    match ota::bootstrap_state(lifecycle_config)
         .await
         .expect("invalid Embewi lifecycle")
     {
-        lifecycle::LifecycleState::Factory => {
-            lifecycle::begin_provisioning(lifecycle_config)
+        ota::BootstrapState::Factory => {
+            ota::begin_provisioning(lifecycle_config)
                 .await
                 .expect("couldn't enter Provisioning lifecycle");
         }
-        lifecycle::LifecycleState::Provisioning
-        | lifecycle::LifecycleState::ReadyForAgent => {
+        ota::BootstrapState::Provisioning
+        | ota::BootstrapState::ReadyForAgent => {
             // A rollback from the first candidate legitimately returns here
             // with ReadyForAgent. The init image remains recoverable until the
             // agent reaches Production.
         }
-        lifecycle::LifecycleState::Production => {
+        ota::BootstrapState::Production => {
             panic!("embewi-init must never run once the device is in Production");
         }
     }

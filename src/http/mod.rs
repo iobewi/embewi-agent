@@ -68,7 +68,7 @@ pub async fn run_provisioning(
     agent_config: &'static crate::agent::AgentConfigSpace,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
     tls_config: &'static crate::tls::TlsConfigSpace,
-    lifecycle_config: &'static crate::lifecycle::LifecycleConfigSpace,
+    lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
     spawner: Spawner,

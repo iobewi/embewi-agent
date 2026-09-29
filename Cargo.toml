@@ -34,6 +34,7 @@ fault-injection-freeze = []
 [dependencies]
 # IOBEWI transactional OTA service and ESP backend.
 iobewi-ota = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c", features = ["http", "runtime"] }
+iobewi-ota-bootstrap = { package = "iobewi-ota", git = "https://github.com/iobewi/iobewi", rev = "50d15060776e028ec9140e7dda08b3c6ccd91933" }
 iobewi-http = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c" }
 iobewi-tls = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c", features = ["http"] }
 iobewi-wifi = { git = "https://github.com/iobewi/iobewi", rev = "fc6bd3cbbeb697e9d72e1fbfda466ad02079ea0c" }
