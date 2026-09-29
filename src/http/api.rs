@@ -40,7 +40,7 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB, H, B>(
+pub async fn serve<L, R, TB, H, B, M, I>(
     listener: &mut L,
     flash: &'static SharedFlash,
     storage: &'static H,
@@ -51,6 +51,8 @@ pub async fn serve<L, R, TB, H, B>(
     reboot: R,
     tls_backend: TB,
     boot: &'static B,
+    metadata: &'static M,
+    identity: &'static I,
 ) -> !
 where
     L: iobewi_https::TlsListener,
@@ -58,6 +60,8 @@ where
     TB: iobewi_tls::http::ProvisioningBackend + Clone + 'static,
     H: agent::StorageHealth,
     B: agent::BootInfoSource,
+    M: agent::DeviceMetadata,
+    I: agent::DeviceIdentity,
 {
     let api_routes = HttpRouter::new()
         .route(
@@ -66,7 +70,7 @@ where
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                json_ok(serde_json::to_string(&agent::info(boot, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
+                json_ok(serde_json::to_string(&agent::info(boot, metadata, identity, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
             }),
         )
         .route(

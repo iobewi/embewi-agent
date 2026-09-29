@@ -4,7 +4,6 @@
 //! `src/ota.rs` (contrat §3/§6) -- this module just assembles the JSON
 //! shapes, `ota.rs` owns the actual OTA state machine.
 
-use alloc::format;
 use alloc::string::String;
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -108,17 +107,23 @@ async fn load_config(space: &AgentConfigSpace) -> Result<AgentConfig, AgentConfi
     }
 }
 
+/// A fallback identity for when no `node_id` has been persisted yet.
+/// Deliberately opaque to `agent.rs`: the fallback is some stable,
+/// device-unique string (a MAC-derived suffix on ESP), never how it was
+/// derived.
+pub trait DeviceIdentity {
+    fn fallback_node_id(&self) -> String;
+}
+
 /// The device's `node_id` (contrat §1a): the ConfigSpace value if
-/// provisioned, else a temporary MAC-derived ID.
-pub async fn node_id(space: &AgentConfigSpace) -> String {
+/// provisioned, else `identity`'s temporary device-unique ID.
+pub async fn node_id<I: DeviceIdentity>(space: &AgentConfigSpace, identity: &I) -> String {
     if let Ok(config) = load_config(space).await
         && !config.node_id.is_empty()
     {
         return config.node_id;
     }
-    let mac = esp_hal::efuse::base_mac_address();
-    let mac = mac.as_bytes();
-    format!("embewi-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
+    identity.fallback_node_id()
 }
 
 pub async fn ctrl_url(space: &AgentConfigSpace) -> String {
@@ -137,13 +142,20 @@ pub async fn is_provisioned(space: &AgentConfigSpace) -> bool {
         .is_ok_and(|config| !config.token.is_empty())
 }
 
+/// A source of random bytes for token generation. Opaque to `agent.rs`:
+/// this crate doesn't know or care whether it's backed by a hardware RNG,
+/// only that the bytes it gets are suitable for a Bearer token.
+pub trait TokenEntropy {
+    fn fill_random(&self, output: &mut [u8]);
+}
+
 /// 128-bit random token, hex-encoded (contrat §1a: "token vide → généré
 /// aléatoirement par le device"). True randomness needs the RF subsystem up
 /// (Wi-Fi) -- always the case here, since this is only ever called from the
 /// HTTP config page, itself only reachable once on Wi-Fi.
-fn generate_token() -> String {
+fn generate_token<E: TokenEntropy>(entropy: &E) -> String {
     let mut bytes = [0u8; 16];
-    esp_hal::rng::Rng::new().read(&mut bytes);
+    entropy.fill_random(&mut bytes);
     let mut token = String::with_capacity(32);
     for b in bytes {
         let _ = write!(token, "{b:02x}");
@@ -158,12 +170,15 @@ fn generate_token() -> String {
 /// rotation"). `http/mod.rs`'s save flow always calls this with an empty
 /// `presented_token` (the form has no token field at all -- it's a
 /// one-shot save, there's nothing to rotate to yet), so in practice this
-/// only ever generates on first provisioning.
-pub async fn save_identity(
+/// only ever generates on first provisioning. `entropy` is only actually
+/// read in that last case -- an existing or presented token never touches
+/// it.
+pub async fn save_identity<E: TokenEntropy>(
     space: &AgentConfigSpace,
     node_id: &str,
     ctrl_url: &str,
     presented_token: &str,
+    entropy: &E,
 ) -> Result<(), AgentConfigError> {
     let mut config = load_config(space).await?;
     config.node_id = String::from(node_id);
@@ -171,7 +186,7 @@ pub async fn save_identity(
     if !presented_token.is_empty() {
         config.token = String::from(presented_token);
     } else if config.token.is_empty() {
-        config.token = generate_token();
+        config.token = generate_token(entropy);
     }
     let encoded = config.encode().ok_or(AgentConfigError::InvalidValue)?;
     space.commit(&encoded).await.map_err(|_| AgentConfigError::Persistence)?;
@@ -334,17 +349,22 @@ pub trait BootInfoSource {
     async fn boot_info(&self) -> BootSnapshot;
 }
 
+/// Platform facts `GET /info` reports as-is (contrat §4's `chip`/
+/// `ram_size`), independent of how they're actually read. `ram_size` is the
+/// chip's total DRAM from its linker memory map -- a hardware constant, not
+/// free/configured heap (`heartbeat.rs`'s `heap_free` already covers that,
+/// a much smaller, firmware-configured subset of this).
+pub trait DeviceMetadata {
+    fn chip_name(&self) -> &'static str;
+    fn ram_size(&self) -> u32;
+}
+
 /// `GET /v1alpha1/info` response body (contrat §4).
 #[derive(Serialize)]
 pub struct Info {
     node_id: String,
     api_versions: &'static [&'static str],
     chip: &'static str,
-    /// Total DRAM available on this chip, in bytes -- a hardware constant
-    /// (`esp_metadata_generated`'s linker-derived memory map), not this
-    /// firmware's own heap size (`heartbeat.rs`'s `heap_free` already
-    /// covers that, and is a much smaller, firmware-configured subset of
-    /// this).
     ram_size: u32,
     partition_layout: &'static str,
     active_slot: String,
@@ -356,8 +376,10 @@ pub struct Info {
     app_port: u16,
 }
 
-pub async fn info<B: BootInfoSource>(
+pub async fn info<B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
     boot: &B,
+    metadata: &M,
+    identity: &I,
     agent_config: &AgentConfigSpace,
     app_config: &ConfigSpace<NvsConfigBackend>,
     runtime_config: &crate::runtime_config::RuntimeConfig,
@@ -366,12 +388,11 @@ pub async fn info<B: BootInfoSource>(
     let config_generation = runtime_config.generation().await;
     let app_port = crate::app_config::port(app_config).await;
     let staged = crate::ota::staged(ota_config).await;
-    let dram = esp_metadata_generated::memory_range!("DRAM");
     Info {
-        node_id: node_id(agent_config).await,
+        node_id: node_id(agent_config, identity).await,
         api_versions: API_VERSIONS,
-        chip: esp_metadata_generated::chip_pretty!(),
-        ram_size: (dram.end - dram.start) as u32,
+        chip: metadata.chip_name(),
+        ram_size: metadata.ram_size(),
         partition_layout: crate::ota::PARTITION_LAYOUT,
         active_slot: boot.active_slot().await,
         boot: {

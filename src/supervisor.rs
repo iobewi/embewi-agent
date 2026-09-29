@@ -46,14 +46,74 @@ impl crate::agent::BootInfoSource for AgentBootInfo {
     }
 }
 
-struct AgentLogConfig {
-    space: &'static crate::agent::AgentConfigSpace,
+/// Last 3 bytes of the efuse-burned MAC address: the device-unique suffix
+/// every ESP composition-root identity/name derived from hardware uses.
+/// Shared with `bin/init.rs`'s Improv device name to avoid two independent
+/// reads of the same efuse, even though the two names built from it
+/// (`embewi-xxxxxx` vs `embewi-init-xxxxxx`) stay distinct application
+/// concerns.
+pub fn mac_suffix() -> [u8; 3] {
+    let mac = esp_hal::efuse::base_mac_address();
+    let mac = mac.as_bytes();
+    [mac[3], mac[4], mac[5]]
 }
 
-impl iobewi_log_stream::LogConfig for AgentLogConfig {
+/// ZST adapter for `agent::DeviceIdentity`: the fallback `node_id` used
+/// until one is persisted. Produces exactly the same `embewi-xxxxxx` shape
+/// as before this capability existed.
+#[derive(Clone, Copy)]
+pub struct EspDeviceIdentity;
+
+impl crate::agent::DeviceIdentity for EspDeviceIdentity {
+    fn fallback_node_id(&self) -> alloc::string::String {
+        let mac = mac_suffix();
+        alloc::format!("embewi-{:02x}{:02x}{:02x}", mac[0], mac[1], mac[2])
+    }
+}
+
+/// ZST adapter for `agent::TokenEntropy`. Same hardware RNG source used
+/// today -- not the ADC-backed `TrngSource` used for the pre-Wi-Fi TLS
+/// bootstrap identity, which stays its own, separate policy.
+#[derive(Clone, Copy)]
+pub struct EspTokenEntropy;
+
+impl crate::agent::TokenEntropy for EspTokenEntropy {
+    fn fill_random(&self, output: &mut [u8]) {
+        esp_hal::rng::Rng::new().read(output);
+    }
+}
+
+/// ZST adapter for `agent::DeviceMetadata`.
+#[derive(Clone, Copy)]
+pub struct EspDeviceMetadata;
+
+impl crate::agent::DeviceMetadata for EspDeviceMetadata {
+    fn chip_name(&self) -> &'static str {
+        esp_metadata_generated::chip_pretty!()
+    }
+
+    fn ram_size(&self) -> u32 {
+        let dram = esp_metadata_generated::memory_range!("DRAM");
+        (dram.end - dram.start) as u32
+    }
+}
+
+/// One process-wide instance of each ZST platform capability -- there is no
+/// state to construct, so a plain `static` gives every task a `'static`
+/// reference without a `StaticCell`.
+static ESP_DEVICE_IDENTITY: EspDeviceIdentity = EspDeviceIdentity;
+static ESP_TOKEN_ENTROPY: EspTokenEntropy = EspTokenEntropy;
+static ESP_DEVICE_METADATA: EspDeviceMetadata = EspDeviceMetadata;
+
+struct AgentLogConfig<I: 'static> {
+    space: &'static crate::agent::AgentConfigSpace,
+    identity: &'static I,
+}
+
+impl<I: crate::agent::DeviceIdentity> iobewi_log_stream::LogConfig for AgentLogConfig<I> {
     async fn ctrl_url(&self) -> alloc::string::String { crate::agent::ctrl_url(self.space).await }
     async fn token(&self) -> alloc::string::String { crate::agent::token(self.space).await }
-    async fn node_id(&self) -> alloc::string::String { crate::agent::node_id(self.space).await }
+    async fn node_id(&self) -> alloc::string::String { crate::agent::node_id(self.space, self.identity).await }
     fn timestamp(&self) -> u64 { crate::time::now().unwrap_or(0) }
     fn workload(&self) -> &'static str { crate::agent::FW_NAME }
     fn path(&self) -> alloc::string::String {
@@ -77,7 +137,7 @@ async fn run_heartbeat(
 ) -> ! {
     static TRANSPORT: StaticCell<EspClientTransport> = StaticCell::new();
     let transport = &*TRANSPORT.init(EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set });
-    crate::heartbeat::run(transport, diagnostics, agent_config, runtime_config, ota_config).await
+    crate::heartbeat::run(transport, diagnostics, &ESP_DEVICE_IDENTITY, agent_config, runtime_config, ota_config).await
 }
 
 #[embassy_executor::task]
@@ -87,7 +147,7 @@ async fn run_log_stream(
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
-    let config = AgentLogConfig { space: agent_config };
+    let config = AgentLogConfig { space: agent_config, identity: &ESP_DEVICE_IDENTITY };
     let transport = EspLogTransport { stack, tls, tls_config, clock_is_set: crate::time::is_set };
     iobewi_log_stream::run(&config, &transport).await
 }
@@ -160,6 +220,8 @@ async fn run_http_api(
         reboot,
         tls_backend,
         boot,
+        &ESP_DEVICE_METADATA,
+        &ESP_DEVICE_IDENTITY,
     ).await
 }
 
@@ -196,6 +258,8 @@ async fn run_http_provisioning(
         ota_config,
         factory_agent,
         reboot,
+        &ESP_DEVICE_IDENTITY,
+        &ESP_TOKEN_ENTROPY,
     ).await
 }
 

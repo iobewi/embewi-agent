@@ -150,7 +150,7 @@ async fn main(spawner: Spawner) -> ! {
     // `Tls` is active. Creating it draws no randomness itself, so the ADC-backed
     // source above still covers every byte the key generation consumes.
     let tls_handle = tls::init(embewi_agent_esp::time::now);
-    let identity_name = agent::node_id(agent_config).await;
+    let identity_name = agent::node_id(agent_config, &embewi_agent_esp::supervisor::EspDeviceIdentity).await;
     tls::ensure_server_identity(tls_config, &identity_name)
         .await
         .expect("bootstrap TLS identity unavailable");
@@ -190,9 +190,8 @@ async fn main(spawner: Spawner) -> ! {
     // a fixed prefix + a suffix from the efuse-burned MAC address, unique
     // per physical board. Matches the convention seen in ESPHome's own
     // Improv device info (e.g. "...-d5eb28").
-    let mac = esp_hal::efuse::base_mac_address();
-    let mac = mac.as_bytes();
-    let device_name = alloc::format!("embewi-init-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5]);
+    let mac = embewi_agent_esp::supervisor::mac_suffix();
+    let device_name = alloc::format!("embewi-init-{:02x}{:02x}{:02x}", mac[0], mac[1], mac[2]);
     let device_info = provisioning::DeviceInfo {
         firmware_name: "embewi-init",
         firmware_version: env!("CARGO_PKG_VERSION"),

@@ -73,7 +73,7 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static>(
+pub async fn serve<L, R, I, E>(
     listener: &mut L,
     flash: &'static SharedFlash,
     agent_config: &'static agent::AgentConfigSpace,
@@ -82,7 +82,15 @@ pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
     reboot: R,
-) -> ! {
+    identity: &'static I,
+    entropy: &'static E,
+) -> !
+where
+    L: iobewi_https::TlsListener,
+    R: RebootPort + Clone + 'static,
+    I: agent::DeviceIdentity,
+    E: agent::TokenEntropy,
+{
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
         .route(
@@ -97,7 +105,7 @@ pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static
                     return Response::new(StatusCode::LOCKED, String::from(LOCKED_PAGE))
                         .with_content_type("text/html; charset=utf-8");
                 }
-                let node_id = agent::node_id(agent_config).await;
+                let node_id = agent::node_id(agent_config, identity).await;
                 let ctrl_url = agent::ctrl_url(agent_config).await;
                 Response::ok(page(led_gpio, &node_id, &ctrl_url, None))
                     .with_content_type("text/html; charset=utf-8")
@@ -140,7 +148,7 @@ pub async fn serve<L: iobewi_https::TlsListener, R: RebootPort + Clone + 'static
                 let saved = if crate::hardware::save_led_gpio(hardware_config, gpio).await.is_err() {
                     false
                 } else {
-                    agent::save_identity(agent_config, &form.node_id, &form.ctrl_url, "")
+                    agent::save_identity(agent_config, &form.node_id, &form.ctrl_url, "", entropy)
                         .await
                         .is_ok()
                 };

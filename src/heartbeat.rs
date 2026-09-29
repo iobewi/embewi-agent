@@ -91,9 +91,10 @@ fn split_host_port(ctrl_url: &str) -> Option<(&str, u16)> {
 /// can't be generic, so the platform's concrete transport type is chosen at
 /// the spawn site instead (see `supervisor.rs`'s `run_heartbeat` task, which
 /// constructs the platform transport and calls this).
-pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics>(
+pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity>(
     transport: &'static T,
     diagnostics: D,
+    identity: &'static I,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -138,7 +139,7 @@ pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics>(
 
             if let Some((host, port)) = split_host_port(&ctrl_url)
                 && let Err(e) =
-                    run_session(transport, &diagnostics, agent_config, runtime_config, ota_config, &mut rx_buffer, &mut tx_buffer, host, port, &ctrl_url, &token).await
+                    run_session(transport, &diagnostics, identity, agent_config, runtime_config, ota_config, &mut rx_buffer, &mut tx_buffer, host, port, &ctrl_url, &token).await
             {
                 warn!("heartbeat: session ended: {e}");
             }
@@ -154,9 +155,10 @@ pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics>(
 /// see `iobewi_http::client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
 /// and `Err` returns are both just "the caller should reconnect" -- the
 /// distinction is only for `run`'s log line, not control flow.
-async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics>(
+async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity>(
     transport: &T,
     diagnostics: &D,
+    identity: &I,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -198,7 +200,7 @@ async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics>(
             return Ok(());
         }
 
-        if let Err(e) = send_heartbeat(&mut session, transport, diagnostics, agent_config, runtime_config, ota_config, host, token_snapshot).await {
+        if let Err(e) = send_heartbeat(&mut session, transport, diagnostics, identity, agent_config, runtime_config, ota_config, host, token_snapshot).await {
             return Err(format!("send to {host} failed: {e}"));
         }
 
@@ -221,17 +223,18 @@ async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics>(
 /// Doesn't read the response -- that's the HTTP client's job, kept
 /// separate so a write failure and a read failure produce distinct log
 /// context upstream.
-async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics>(
+async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity>(
     session: &mut T::Connection<'h>,
     transport: &T,
     diagnostics: &D,
+    identity: &I,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     host_str: &str,
     token: &str,
 ) -> Result<(), String> {
-    let node_id = agent::node_id(agent_config).await;
+    let node_id = agent::node_id(agent_config, identity).await;
     let ip = transport.local_address().unwrap_or_default();
 
     // The transport refuses to connect before SNTP has converged (TLS date
