@@ -41,14 +41,14 @@ pub use iobewi_esp_ota::service::OtaConfigSpace;
 
 use iobewi_esp_config_space::NvsConfigBackend;
 
-pub use iobewi_ota_bootstrap::bootstrap::{BootstrapError, BootstrapState};
+pub use iobewi_ota::bootstrap::{BootstrapError, BootstrapState};
 pub const BOOTSTRAP_CONFIG_BUDGET: Budget =
-    Budget::new(iobewi_ota_bootstrap::bootstrap::MAX_BYTES);
+    Budget::new(iobewi_ota::bootstrap::MAX_BYTES);
 pub type BootstrapConfigSpace = ConfigSpace<NvsConfigBackend>;
 
 struct BootstrapConfigStore<'a, B: ConfigBackend>(&'a ConfigSpace<B>);
 
-impl<B: ConfigBackend> iobewi_ota_bootstrap::bootstrap::BootstrapStore for BootstrapConfigStore<'_, B> {
+impl<B: ConfigBackend> iobewi_ota::bootstrap::BootstrapStore for BootstrapConfigStore<'_, B> {
     type Error = ();
 
     async fn load_raw(&self) -> Result<Option<alloc::vec::Vec<u8>>, Self::Error> {
@@ -67,25 +67,25 @@ impl<B: ConfigBackend> iobewi_ota_bootstrap::bootstrap::BootstrapStore for Boots
 pub async fn bootstrap_state<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<BootstrapState, BootstrapError> {
-    iobewi_ota_bootstrap::bootstrap::state(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::state(&BootstrapConfigStore(space)).await
 }
 
 pub async fn begin_provisioning<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota_bootstrap::bootstrap::begin_provisioning(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::begin_provisioning(&BootstrapConfigStore(space)).await
 }
 
 pub async fn ready_for_agent<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota_bootstrap::bootstrap::ready_for_agent(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::ready_for_agent(&BootstrapConfigStore(space)).await
 }
 
 pub async fn production<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota_bootstrap::bootstrap::production(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::production(&BootstrapConfigStore(space)).await
 }
 use iobewi_esp_flash::SharedFlash;
 

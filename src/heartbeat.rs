@@ -3,11 +3,13 @@
 //! that never accepts inbound connections. Silent (skips the tick) while
 //! `ctrl_url` is empty -- nothing provisioned yet, nothing to talk to.
 //!
-//! HTTPS via the platform TLS transport (contrat §5: "le scheme est forcé en
-//! https:// indépendamment du scheme stocké dans ctrl_url"). The portable
-//! `iobewi-http` client writes requests and drains responses over that stream.
-//! Stays silent (no heartbeat sent, tick skipped) until a CA is configured
-//! via `POST /v1alpha1/tls/ca` -- see `tls::ClientTlsError::NoCa`.
+//! HTTPS via a portable [`SecureClientTransport`] (contrat §5: "le scheme
+//! est forcé en https:// indépendamment du scheme stocké dans ctrl_url").
+//! This module never sees DNS, TCP, the TLS handshake, MbedTLS, or the
+//! network stack -- those, and the CA/clock fail-closed policy, are the
+//! platform transport's own construction-time concern. The portable
+//! `iobewi-http` client writes requests and drains responses over the
+//! resulting stream.
 //!
 //! **One TLS connection reused across many heartbeats**, not a fresh
 //! handshake every 5s (the previous design: `Connection: close` on every
@@ -15,7 +17,7 @@
 //! 17 280/device/day -- pure overhead paid every tick, whether or not
 //! anything changed. Structured as an outer reconnect loop around an inner
 //! per-heartbeat loop (mirrors `log_stream.rs`'s `run`/`run_session`
-//! split): the inner loop keeps sending on the same [`ClientStream`]
+//! split): the inner loop keeps sending on the same connection
 //! until something actually requires a new connection -- the socket drops,
 //! the server sends `Connection: close`, `ctrl_url` changes, or this
 //! response framing cannot be safely reused (see
@@ -36,17 +38,15 @@
 //! closes) -- treated the same as an explicit `Connection: close`, not
 //! guessed at.
 
-use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::String;
 
-use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer};
+use iobewi_transport::{Close, SecureClientTransport};
 use log::{info, warn};
 use serde::Serialize;
 
 use crate::agent;
-use crate::tls::{ClientStream, TlsReferenceStatic};
 
 const PERIOD: Duration = Duration::from_secs(5);
 /// Sentinel meaning "no temperature sensor wired up" (contrat §5) -- always
@@ -86,8 +86,16 @@ fn split_host_port(ctrl_url: &str) -> Option<(&str, u16)> {
     }
 }
 
-#[embassy_executor::task]
-pub async fn run(stack: Stack<'static>, agent_config: &'static agent::AgentConfigSpace, runtime_config: &'static crate::runtime_config::RuntimeConfig, ota_config: &'static crate::ota::OtaConfigSpace, tls_config: &'static crate::tls::TlsConfigSpace, tls: TlsReferenceStatic) -> ! {
+/// Plain generic `async fn`, not `#[embassy_executor::task]`: embassy tasks
+/// can't be generic, so the platform's concrete transport type is chosen at
+/// the spawn site instead (see `supervisor.rs`'s `run_heartbeat` task, which
+/// constructs the platform transport and calls this).
+pub async fn run<T: SecureClientTransport>(
+    transport: &'static T,
+    agent_config: &'static agent::AgentConfigSpace,
+    runtime_config: &'static crate::runtime_config::RuntimeConfig,
+    ota_config: &'static crate::ota::OtaConfigSpace,
+) -> ! {
     // Declared once outside the reconnect loop, like `http::run`'s own
     // buffers -- reused across every reconnection attempt (not every
     // heartbeat -- there's only one connection attempt per many
@@ -127,13 +135,10 @@ pub async fn run(stack: Stack<'static>, agent_config: &'static agent::AgentConfi
             }
 
             if let Some((host, port)) = split_host_port(&ctrl_url)
-                && let Ok(host_c) = CString::new(host)
+                && let Err(e) =
+                    run_session(transport, agent_config, runtime_config, ota_config, &mut rx_buffer, &mut tx_buffer, host, port, &ctrl_url, &token).await
             {
-                if let Err(e) =
-                    run_session(tls, stack, agent_config, runtime_config, ota_config, tls_config, &mut rx_buffer, &mut tx_buffer, &host_c, port, &ctrl_url, &token).await
-                {
-                    warn!("heartbeat: session ended: {e}");
-                }
+                warn!("heartbeat: session ended: {e}");
             }
         }
         Timer::after(PERIOD).await;
@@ -147,25 +152,23 @@ pub async fn run(stack: Stack<'static>, agent_config: &'static agent::AgentConfi
 /// see `iobewi_http::client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
 /// and `Err` returns are both just "the caller should reconnect" -- the
 /// distinction is only for `run`'s log line, not control flow.
-async fn run_session(
-    tls: TlsReferenceStatic,
-    stack: Stack<'static>,
+async fn run_session<T: SecureClientTransport>(
+    transport: &T,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
-    tls_config: &'static crate::tls::TlsConfigSpace,
     rx_buffer: &mut [u8],
     tx_buffer: &mut [u8],
-    host: &core::ffi::CStr,
+    host: &str,
     port: u16,
     ctrl_url_snapshot: &str,
     token_snapshot: &str,
 ) -> Result<(), String> {
-    let mut session = crate::tls::connect_client(tls, stack, tls_config, crate::time::is_set(), rx_buffer, tx_buffer, host, port)
+    let mut session = transport
+        .connect(host, port, rx_buffer, tx_buffer)
         .await
-        .map_err(|e| format!("connect to {host:?}:{port} failed: {e}"))?;
-    let host_str = host.to_str().unwrap_or("");
-    info!("heartbeat: connected to {host_str}:{port}");
+        .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
+    info!("heartbeat: connected to {host}:{port}");
 
     // The response-draining scratch buffer: reused for every heartbeat on
     // this connection, distinct from `rx_buffer`/`tx_buffer` above (those
@@ -192,17 +195,17 @@ async fn run_session(
             return Ok(());
         }
 
-        if let Err(e) = send_heartbeat(&mut session, agent_config, runtime_config, ota_config, stack, host_str, token_snapshot).await {
-            return Err(format!("send to {host_str} failed: {e}"));
+        if let Err(e) = send_heartbeat(&mut session, transport, agent_config, runtime_config, ota_config, host, token_snapshot).await {
+            return Err(format!("send to {host} failed: {e}"));
         }
 
         let (status, keep_alive) = match iobewi_http::client::drain_response(&mut session, &mut resp_buf).await {
             Ok(result) => result,
-            Err(e) => return Err(format!("reading response from {host_str} failed: {e}")),
+            Err(e) => return Err(format!("reading response from {host} failed: {e}")),
         };
-        info!("heartbeat: POST {host_str}/v1alpha1/heartbeat -> {status}");
+        info!("heartbeat: POST {host}/v1alpha1/heartbeat -> {status}");
         if !keep_alive {
-            info!("heartbeat: {host_str} ended keep-alive, reconnecting next tick");
+            info!("heartbeat: {host} ended keep-alive, reconnecting next tick");
             let _ = session.close().await;
             return Ok(());
         }
@@ -215,20 +218,20 @@ async fn run_session(
 /// Doesn't read the response -- that's the HTTP client's job, kept
 /// separate so a write failure and a read failure produce distinct log
 /// context upstream.
-async fn send_heartbeat<'h, 'buf>(
-    session: &mut ClientStream<'h, 'buf>,
+async fn send_heartbeat<'h, T: SecureClientTransport>(
+    session: &mut T::Connection<'h>,
+    transport: &T,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
-    stack: Stack<'static>,
     host_str: &str,
     token: &str,
 ) -> Result<(), String> {
     let node_id = agent::node_id(agent_config).await;
-    let ip = stack.config_v4().map(|c| format!("{}", c.address.address())).unwrap_or_default();
+    let ip = transport.local_address().unwrap_or_default();
 
-    // `connect_client` refuses to connect before SNTP has converged (TLS
-    // date validation fails closed), so the clock is set by here and the
+    // The transport refuses to connect before SNTP has converged (TLS date
+    // validation fails closed), so the clock is set by here and the
     // contrat §5 `clock_unsynced` distress channel can no longer be sent:
     // an unsynced device is silent, and the log below says why.
     let ts = crate::time::now().unwrap_or_default();

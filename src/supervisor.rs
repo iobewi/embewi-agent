@@ -12,6 +12,8 @@ use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_log_stream::EspLogTransport;
+use iobewi_esp_tls::service::EspClientTransport;
+use static_cell::StaticCell;
 
 struct AgentLogConfig {
     space: &'static crate::agent::AgentConfigSpace,
@@ -26,6 +28,24 @@ impl iobewi_log_stream::LogConfig for AgentLogConfig {
     fn path(&self) -> alloc::string::String {
         alloc::format!("{}/logs", crate::http::api::API_PREFIX)
     }
+}
+
+/// Constructs the platform's `SecureClientTransport` and calls into the
+/// portable, generic `heartbeat::run` -- embassy tasks can't themselves be
+/// generic, so the platform's concrete transport type is chosen here, at
+/// the composition root, exactly like `run_log_stream` just below.
+#[embassy_executor::task]
+async fn run_heartbeat(
+    stack: Stack<'static>,
+    agent_config: &'static crate::agent::AgentConfigSpace,
+    runtime_config: &'static crate::runtime_config::RuntimeConfig,
+    ota_config: &'static crate::ota::OtaConfigSpace,
+    tls_config: &'static crate::tls::TlsConfigSpace,
+    tls: crate::tls::TlsReferenceStatic,
+) -> ! {
+    static TRANSPORT: StaticCell<EspClientTransport> = StaticCell::new();
+    let transport = &*TRANSPORT.init(EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set });
+    crate::heartbeat::run(transport, agent_config, runtime_config, ota_config).await
 }
 
 #[embassy_executor::task]
@@ -116,7 +136,7 @@ impl ApplicationSupervisor {
             plausible_epoch_floor: 1_700_000_000,
         }).unwrap());
         self.spawner
-            .spawn(crate::heartbeat::run(
+            .spawn(run_heartbeat(
                 stack,
                 self.agent_config,
                 self.runtime_config,
