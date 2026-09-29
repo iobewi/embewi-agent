@@ -17,6 +17,9 @@ use crate::agent;
 use iobewi_config_space::ConfigSpace;
 use crate::ota;
 use iobewi_esp_config_space::NvsConfigBackend;
+// SharedFlash is still needed here only to construct `AgentOtaBackend`
+// below (the OTA backend that legitimately owns the flash handle); it is
+// no longer used for `/info`, which now goes through `BootInfoSource`.
 use iobewi_esp_flash::SharedFlash;
 
 use super::{json_error, json_ok, unauthorized};
@@ -37,21 +40,24 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB>(
+pub async fn serve<L, R, TB, H, B>(
     listener: &mut L,
     flash: &'static SharedFlash,
-    nvs_backend: &'static NvsConfigBackend,
+    storage: &'static H,
     agent_config: &'static agent::AgentConfigSpace,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: R,
     tls_backend: TB,
+    boot: &'static B,
 ) -> !
 where
     L: iobewi_https::TlsListener,
     R: RebootPort + Clone + 'static,
     TB: iobewi_tls::http::ProvisioningBackend + Clone + 'static,
+    H: agent::StorageHealth,
+    B: agent::BootInfoSource,
 {
     let api_routes = HttpRouter::new()
         .route(
@@ -60,7 +66,7 @@ where
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                json_ok(serde_json::to_string(&agent::info(flash, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
+                json_ok(serde_json::to_string(&agent::info(boot, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
             }),
         )
         .route(
@@ -69,7 +75,7 @@ where
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                json_ok(serde_json::to_string(&agent::health(nvs_backend).await).unwrap_or_default())
+                json_ok(serde_json::to_string(&agent::health(storage).await).unwrap_or_default())
             }),
         )
         .route(

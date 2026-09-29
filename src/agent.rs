@@ -14,7 +14,6 @@ use serde::Serialize;
 use subtle::ConstantTimeEq;
 
 use iobewi_esp_config_space::NvsConfigBackend;
-use iobewi_esp_flash::SharedFlash;
 
 /// Versions of the `/v1alpha1`-style protocol this agent answers, highest
 /// first (contrat §4, "Découverte de version d'API").
@@ -316,6 +315,25 @@ struct StagedInfo {
     deployment_id: String,
 }
 
+/// Portable view of the bootloader's `otadata` (EWBT) entry: newest entry's
+/// slot, sequence and state. Belongs to the agent domain, not to any ESP
+/// OTA storage type -- see [`BootInfoSource`].
+pub struct BootSnapshot {
+    pub slot: &'static str,
+    pub seq: u32,
+    pub state: &'static str,
+}
+
+/// The boot-time facts `GET /info` needs (contrat §4's `active_slot`/
+/// `boot`), independent of how they're actually read off flash. Keeps
+/// `info()` from depending on `SharedFlash` or any other ESP OTA storage
+/// type -- the platform adapter lives at the composition root instead.
+#[allow(async_fn_in_trait)]
+pub trait BootInfoSource {
+    async fn active_slot(&self) -> String;
+    async fn boot_info(&self) -> BootSnapshot;
+}
+
 /// `GET /v1alpha1/info` response body (contrat §4).
 #[derive(Serialize)]
 pub struct Info {
@@ -338,8 +356,8 @@ pub struct Info {
     app_port: u16,
 }
 
-pub async fn info(
-    flash: &SharedFlash,
+pub async fn info<B: BootInfoSource>(
+    boot: &B,
     agent_config: &AgentConfigSpace,
     app_config: &ConfigSpace<NvsConfigBackend>,
     runtime_config: &crate::runtime_config::RuntimeConfig,
@@ -355,9 +373,9 @@ pub async fn info(
         chip: esp_metadata_generated::chip_pretty!(),
         ram_size: (dram.end - dram.start) as u32,
         partition_layout: crate::ota::PARTITION_LAYOUT,
-        active_slot: crate::ota::active_slot(flash).await,
+        active_slot: boot.active_slot().await,
         boot: {
-            let boot = crate::ota::boot_info(flash).await;
+            let boot = boot.boot_info().await;
             BootInfo { slot: boot.slot, seq: boot.seq, state: boot.state }
         },
         firmware: Firmware {
@@ -393,14 +411,22 @@ pub struct Health {
     checks: Checks,
 }
 
-pub async fn health(nvs_backend: &NvsConfigBackend) -> Health {
+/// "Is the storage this agent's identity/config lives on currently
+/// considered sound?" -- a runtime diagnostic of the concrete backend, not
+/// a persistence operation every `ConfigSpace` backend must offer (that's
+/// `ConfigBackend`'s `load`/`commit`/`clear`/`capacity`).
+pub trait StorageHealth {
+    fn is_healthy(&self) -> bool;
+}
+
+pub async fn health<H: StorageHealth>(storage: &H) -> Health {
     // Last known NVS health: the canary round-trip (contrat's own C
     // reference does the same test, for the same reason -- staged OTA
     // state, the token and McuConfigMap all live there) ran at boot and
     // runs again as the `pending_verify` gate, and any NVS error since
     // then has cleared it. A health probe never writes flash: polled at
     // 1 Hz it would mean ~170k NVS mutations a day.
-    let storage_ok = nvs_backend.is_healthy();
+    let storage_ok = storage.is_healthy();
     // No separate workload process or sensors on this agent (single
     // binary) -- vacuously true, same reasoning the reference
     // implementation uses for its demo apps that have no sensors either.

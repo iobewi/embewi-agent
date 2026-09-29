@@ -16,6 +16,36 @@ use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
 use static_cell::StaticCell;
 
+/// The trait is local to `embewi-agent` (`agent::StorageHealth`), so
+/// implementing it for this foreign ESP type respects the orphan rule and
+/// needs no wrapper.
+impl crate::agent::StorageHealth for NvsConfigBackend {
+    fn is_healthy(&self) -> bool {
+        NvsConfigBackend::is_healthy(self)
+    }
+}
+
+/// Composition adapter for `agent::BootInfoSource`: converts the ESP
+/// bootloader's `otadata::BootEntry` to the portable `agent::BootSnapshot`.
+/// `flash` is used here only because that's what reading boot state off the
+/// ESP OTA partitions actually requires, not because `/info` itself needs a
+/// flash handle.
+#[derive(Clone, Copy)]
+struct AgentBootInfo {
+    flash: &'static SharedFlash,
+}
+
+impl crate::agent::BootInfoSource for AgentBootInfo {
+    async fn active_slot(&self) -> alloc::string::String {
+        crate::ota::active_slot(self.flash).await
+    }
+
+    async fn boot_info(&self) -> crate::agent::BootSnapshot {
+        let boot = crate::ota::boot_info(self.flash).await;
+        crate::agent::BootSnapshot { slot: boot.slot, seq: boot.seq, state: boot.state }
+    }
+}
+
 struct AgentLogConfig {
     space: &'static crate::agent::AgentConfigSpace,
 }
@@ -117,6 +147,8 @@ async fn run_http_api(
         &mut tx,
     );
     let tls_backend = AgentTlsProvisioningBackend { tls_config, agent_config };
+    static BOOT: StaticCell<AgentBootInfo> = StaticCell::new();
+    let boot = &*BOOT.init(AgentBootInfo { flash });
     crate::http::api::serve(
         &mut listener,
         flash,
@@ -127,6 +159,7 @@ async fn run_http_api(
         ota_config,
         reboot,
         tls_backend,
+        boot,
     ).await
 }
 
