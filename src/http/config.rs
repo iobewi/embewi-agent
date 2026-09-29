@@ -21,7 +21,7 @@ use iobewi_http::HttpRouter;
 use static_cell::StaticCell;
 
 use crate::agent;
-use crate::lifecycle::LifecycleState;
+use crate::ota::BootstrapState;
 use iobewi_esp_flash::SharedFlash;
 
 use super::{STYLE_CSS, html_escape, reboot_after_delay};
@@ -84,7 +84,7 @@ pub async fn serve(
     agent_config: &'static agent::AgentConfigSpace,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
     tls_config: &'static crate::tls::TlsConfigSpace,
-    lifecycle_config: &'static crate::lifecycle::LifecycleConfigSpace,
+    lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
     spawner: Spawner,
@@ -106,11 +106,11 @@ pub async fn serve(
         .route(
             "/",
             get(move || async move {
-                let lifecycle = crate::lifecycle::state(lifecycle_config).await;
+                let lifecycle = crate::ota::bootstrap_state(lifecycle_config).await;
                 let led_gpio = crate::hardware::led_gpio(hardware_config).await;
                 if !matches!(
                     lifecycle,
-                    Ok(LifecycleState::Provisioning | LifecycleState::ReadyForAgent)
+                    Ok(BootstrapState::Provisioning | BootstrapState::ReadyForAgent)
                 ) {
                     return Response::new(StatusCode::LOCKED, String::from(LOCKED_PAGE))
                         .with_content_type("text/html; charset=utf-8");
@@ -125,10 +125,10 @@ pub async fn serve(
             // that) -- a validation error re-serves the editable form
             // instead, so a typo doesn't lock the device out over nothing.
             .post(move |Form(form): Form<ConfigForm>| async move {
-                let lifecycle = crate::lifecycle::state(lifecycle_config).await;
+                let lifecycle = crate::ota::bootstrap_state(lifecycle_config).await;
                 if !matches!(
                     lifecycle,
-                    Ok(LifecycleState::Provisioning | LifecycleState::ReadyForAgent)
+                    Ok(BootstrapState::Provisioning | BootstrapState::ReadyForAgent)
                 ) {
                     return Response::new(StatusCode::LOCKED, String::from(LOCKED_PAGE))
                         .with_content_type("text/html; charset=utf-8");
@@ -186,7 +186,7 @@ pub async fn serve(
                     .with_content_type("text/html; charset=utf-8");
                 }
 
-                if crate::lifecycle::ready_for_agent(lifecycle_config).await.is_err() {
+                if crate::ota::ready_for_agent(lifecycle_config).await.is_err() {
                     return Response::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         page(
