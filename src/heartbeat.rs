@@ -42,6 +42,7 @@ use alloc::format;
 use alloc::string::String;
 
 use embassy_time::{Duration, Instant, Timer};
+use iobewi_runtime::RuntimeDiagnostics;
 use iobewi_transport::{Close, SecureClientTransport};
 use log::{info, warn};
 use serde::Serialize;
@@ -90,8 +91,9 @@ fn split_host_port(ctrl_url: &str) -> Option<(&str, u16)> {
 /// can't be generic, so the platform's concrete transport type is chosen at
 /// the spawn site instead (see `supervisor.rs`'s `run_heartbeat` task, which
 /// constructs the platform transport and calls this).
-pub async fn run<T: SecureClientTransport>(
+pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics>(
     transport: &'static T,
+    diagnostics: D,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -136,7 +138,7 @@ pub async fn run<T: SecureClientTransport>(
 
             if let Some((host, port)) = split_host_port(&ctrl_url)
                 && let Err(e) =
-                    run_session(transport, agent_config, runtime_config, ota_config, &mut rx_buffer, &mut tx_buffer, host, port, &ctrl_url, &token).await
+                    run_session(transport, &diagnostics, agent_config, runtime_config, ota_config, &mut rx_buffer, &mut tx_buffer, host, port, &ctrl_url, &token).await
             {
                 warn!("heartbeat: session ended: {e}");
             }
@@ -152,8 +154,9 @@ pub async fn run<T: SecureClientTransport>(
 /// see `iobewi_http::client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
 /// and `Err` returns are both just "the caller should reconnect" -- the
 /// distinction is only for `run`'s log line, not control flow.
-async fn run_session<T: SecureClientTransport>(
+async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics>(
     transport: &T,
+    diagnostics: &D,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -195,7 +198,7 @@ async fn run_session<T: SecureClientTransport>(
             return Ok(());
         }
 
-        if let Err(e) = send_heartbeat(&mut session, transport, agent_config, runtime_config, ota_config, host, token_snapshot).await {
+        if let Err(e) = send_heartbeat(&mut session, transport, diagnostics, agent_config, runtime_config, ota_config, host, token_snapshot).await {
             return Err(format!("send to {host} failed: {e}"));
         }
 
@@ -218,9 +221,10 @@ async fn run_session<T: SecureClientTransport>(
 /// Doesn't read the response -- that's the HTTP client's job, kept
 /// separate so a write failure and a read failure produce distinct log
 /// context upstream.
-async fn send_heartbeat<'h, T: SecureClientTransport>(
+async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics>(
     session: &mut T::Connection<'h>,
     transport: &T,
+    diagnostics: &D,
     agent_config: &'static agent::AgentConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
@@ -254,7 +258,7 @@ async fn send_heartbeat<'h, T: SecureClientTransport>(
         uptime_ms: Instant::now().as_millis(),
         heap_free: esp_alloc::HEAP.free() as u32,
         temp_celsius: TEMP_UNAVAILABLE,
-        task_hwm_min: crate::stack_usage::free_bytes(),
+        task_hwm_min: diagnostics.stack_headroom_bytes(),
     };
     let json = serde_json::to_string(&body).map_err(|_| String::from("heartbeat body failed to serialize"))?;
 

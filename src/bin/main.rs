@@ -31,14 +31,14 @@ esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // First thing, before anything else touches the stack any deeper than
-    // this: paints it for `stack_usage::free_bytes()`'s high-water-mark
+    // this: paints it for the runtime diagnostics capability's high-water-mark
     // measurement (contrat §5's `task_hwm_min`) -- the earlier this runs,
     // the more of the stack it captures as "unused" before real usage
     // grows past it. Doesn't capture the runtime's own pre-`main` prologue
     // (riscv-rt's own stack usage before jumping here), but that's a fixed,
     // small, one-time cost, not something that grows with this firmware's
     // own code.
-    embewi_agent_esp::stack_usage::paint();
+    let diagnostics = iobewi_esp_runtime::EspRuntimeDiagnostics::initialize();
 
     // The portable log service replaces `esp_println::logger::init_logger_from_env()`:
     // it still prints locally at the same filter level (`.cargo/config.toml`'s
@@ -55,7 +55,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Sizes recommended by esp-radio's docs for Wi-Fi. This second pool is
     // carved out of the same DRAM region the linker otherwise reserves
-    // entirely for the stack (see `stack_usage.rs`) -- grown from 36 KiB
+    // entirely for the stack (see `iobewi-esp-runtime`) -- grown from 36 KiB
     // once `task_hwm_min` (contrat §5's real stack high-water-mark,
     // exposed in the heartbeat) confirmed real usage was nowhere close to
     // the ~189 KiB the linker set aside by default. Deliberately not
@@ -262,6 +262,7 @@ async fn main(spawner: Spawner) -> ! {
         ota_config,
         flash,
         config_backend,
+        diagnostics,
     );
 
     let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());

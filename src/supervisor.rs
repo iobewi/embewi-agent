@@ -12,6 +12,7 @@ use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_log_stream::EspLogTransport;
+use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
 use static_cell::StaticCell;
 
@@ -42,10 +43,11 @@ async fn run_heartbeat(
     ota_config: &'static crate::ota::OtaConfigSpace,
     tls_config: &'static crate::tls::TlsConfigSpace,
     tls: crate::tls::TlsReferenceStatic,
+    diagnostics: EspRuntimeDiagnostics,
 ) -> ! {
     static TRANSPORT: StaticCell<EspClientTransport> = StaticCell::new();
     let transport = &*TRANSPORT.init(EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set });
-    crate::heartbeat::run(transport, agent_config, runtime_config, ota_config).await
+    crate::heartbeat::run(transport, diagnostics, agent_config, runtime_config, ota_config).await
 }
 
 #[embassy_executor::task]
@@ -71,10 +73,12 @@ pub struct ApplicationSupervisor {
     ota_config: &'static crate::ota::OtaConfigSpace,
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
+    diagnostics: EspRuntimeDiagnostics,
     ip_services_started: bool,
 }
 
 impl ApplicationSupervisor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         spawner: Spawner,
         lpwr: LPWR<'static>,
@@ -86,6 +90,7 @@ impl ApplicationSupervisor {
         ota_config: &'static crate::ota::OtaConfigSpace,
         flash: &'static SharedFlash,
         nvs_backend: &'static NvsConfigBackend,
+        diagnostics: EspRuntimeDiagnostics,
     ) -> Self {
         Self {
             spawner,
@@ -98,6 +103,7 @@ impl ApplicationSupervisor {
             ota_config,
             flash,
             nvs_backend,
+            diagnostics,
             ip_services_started: false,
         }
     }
@@ -143,6 +149,7 @@ impl ApplicationSupervisor {
                 self.ota_config,
                 self.tls_config,
                 self.tls,
+                self.diagnostics,
             ).unwrap());
         self.spawner
             .spawn(run_log_stream(
