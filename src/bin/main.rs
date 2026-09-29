@@ -17,10 +17,10 @@ use static_cell::StaticCell;
 use embewi_agent_esp::agent;
 use embewi_agent_esp::app_config;
 use embewi_agent_esp::hardware;
-use embewi_agent_esp::status;
 use embewi_agent_esp::tls;
 use iobewi_config_space::{ConfigManager, ConfigSpace};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
+use iobewi_esp_indicator::led_task;
 use embewi_agent_esp::wifi::{self, WifiManager};
 use embewi_agent_esp::runtime_config;
 
@@ -177,7 +177,7 @@ async fn main(spawner: Spawner) -> ! {
             21 => peripherals.GPIO21.degrade(),
             other => panic!("saved status LED GPIO {other} is out of range for this chip"),
         };
-        spawner.spawn(status::led_task(peripherals.RMT, led_pin).unwrap());
+        spawner.spawn(led_task(peripherals.RMT, led_pin).unwrap());
     }
 
     // IOBEWI OTA only reports the boot disposition here. Application policy

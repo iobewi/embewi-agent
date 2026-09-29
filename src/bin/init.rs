@@ -17,6 +17,7 @@ use static_cell::StaticCell;
 
 use embewi_agent_esp::{agent, hardware, ota, provisioning, tls, wifi};
 use embewi_agent_esp::wifi::WifiManager;
+use iobewi_esp_indicator::EspStatusIndicator;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -174,5 +175,9 @@ async fn main(spawner: Spawner) -> ! {
     let (rx, tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
         .into_async()
         .split();
-    provisioning::run(rx, tx, wifi, supervisor).await
+    // No LED task is spawned in this disposable init image (unchanged from
+    // before this capability existed) -- the indicator still needs a
+    // concrete implementation to satisfy `provisioning::run`'s generic
+    // bound, it just has nothing rendering what it's told.
+    provisioning::run(rx, tx, wifi, supervisor, &EspStatusIndicator).await
 }

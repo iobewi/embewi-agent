@@ -8,9 +8,10 @@ use esp_hal::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx};
 use log::{info, warn};
 
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
-use crate::status::{self, Status};
+use crate::Status;
 use crate::supervisor::ProvisioningSupervisor;
 use crate::wifi::WifiManager;
+use iobewi_indicator::StatusIndicator;
 
 const NAME: &str = "embewi-init";
 /// Not a literal: this tracks whichever chip `esp-hal`'s own feature flags
@@ -21,12 +22,15 @@ const CHIP: &str = esp_metadata_generated::chip_pretty!();
 type Rx = UsbSerialJtagRx<'static, Async>;
 type Tx = UsbSerialJtagTx<'static, Async>;
 
-/// Serves Improv Serial forever.
-pub async fn run(
+/// Serves Improv Serial forever. Generic over the platform's status
+/// indicator: this module expresses only logical states (`Status::*`), never
+/// a colour or a peripheral -- see `iobewi_indicator::StatusIndicator`.
+pub async fn run<I: StatusIndicator>(
     mut rx: Rx,
     mut tx: Tx,
     mut wifi: WifiManager,
     mut supervisor: ProvisioningSupervisor,
+    indicator: &I,
 ) -> ! {
     let mut parser = Parser::new();
     let mut state = if wifi.is_online() {
@@ -37,7 +41,7 @@ pub async fn run(
     let mut buffer = [0u8; 64];
 
     info!("Improv: listening on USB-Serial-JTAG");
-    status::set(idle_status(&wifi));
+    indicator.set(idle_status(&wifi));
 
     loop {
         let read = match rx.read(&mut buffer).await {
@@ -49,7 +53,7 @@ pub async fn run(
         };
         for &byte in &buffer[..read] {
             if let Some(command) = parser.feed(byte) {
-                handle(command, &mut tx, &mut state, &mut wifi, &mut supervisor).await;
+                handle(command, &mut tx, &mut state, &mut wifi, &mut supervisor, indicator).await;
             }
         }
     }
@@ -80,12 +84,13 @@ fn next_url(wifi: &WifiManager) -> alloc::string::String {
         .unwrap_or_default()
 }
 
-async fn handle(
+async fn handle<I: StatusIndicator>(
     command: ParsedCommand,
     tx: &mut Tx,
     state: &mut State,
     wifi: &mut WifiManager,
     supervisor: &mut ProvisioningSupervisor,
+    indicator: &I,
 ) {
     match command {
         ParsedCommand::GetCurrentState => {
@@ -128,7 +133,7 @@ async fn handle(
             send(tx, &frame).await;
         }
         ParsedCommand::GetWifiNetworks => {
-            status::set(Status::Scanning);
+            indicator.set(Status::Scanning);
             for network in wifi.scan().await {
                 let signal_strength = alloc::format!("{}", network.signal_strength);
                 let secured: &[u8] = if network.secured { b"YES" } else { b"NO" };
@@ -140,7 +145,7 @@ async fn handle(
             }
             // An empty entry terminates the list.
             send(tx, &improv::rpc_response_frame(Command::GetWifiNetworks, &[])).await;
-            status::set(idle_status(wifi));
+            indicator.set(idle_status(wifi));
         }
         ParsedCommand::GetNetworkState => {
             let mut flags: u8 = 0x02; // supports Wi-Fi
@@ -165,7 +170,7 @@ async fn handle(
         ParsedCommand::WifiSettings(settings) => {
             info!("Improv: connecting to SSID={}", settings.ssid);
             *state = State::Provisioning;
-            status::set(Status::Connecting);
+            indicator.set(Status::Connecting);
             send(tx, &improv::state_frame(*state)).await;
 
             if wifi.provision(&settings.ssid, settings.password).await {
@@ -175,7 +180,7 @@ async fn handle(
                     warn!("Wi-Fi reported connected without an IP stack");
                 }
                 *state = State::Provisioned;
-                status::set(Status::Online);
+                indicator.set(Status::Online);
                 send(tx, &improv::state_frame(*state)).await;
                 send(
                     tx,
@@ -184,7 +189,7 @@ async fn handle(
                 .await;
             } else {
                 *state = State::Authorized;
-                status::set(Status::Failed);
+                indicator.set(Status::Failed);
                 send(tx, &improv::error_frame(ImprovError::UnableToConnect)).await;
                 send(tx, &improv::state_frame(*state)).await;
             }
