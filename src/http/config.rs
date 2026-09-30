@@ -79,7 +79,7 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve<L, R, FO, I, E, AB, HB, LB>(
+pub async fn serve<L, R, FO, I, E, C, AB, HB, LB>(
     listener: &mut L,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace<HB>,
@@ -89,7 +89,7 @@ pub async fn serve<L, R, FO, I, E, AB, HB, LB>(
     reboot: R,
     identity: &'static I,
     entropy: &'static E,
-    status_led_gpios: &'static [u8],
+    indicator_capabilities: &'static C,
 ) -> !
 where
     L: iobewi_https::TlsListener,
@@ -97,10 +97,12 @@ where
     FO: FactoryOta + Clone + 'static,
     I: iobewi_device::DeviceIdentity,
     E: iobewi_entropy::EntropySource,
+    C: iobewi_indicator::StatusIndicatorCapabilities,
     AB: iobewi_config_space::ConfigBackend,
     HB: iobewi_config_space::ConfigBackend,
     LB: iobewi_config_space::ConfigBackend,
 {
+    let status_led_gpios = indicator_capabilities.configurable_pins();
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
         .route(
