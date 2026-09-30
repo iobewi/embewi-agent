@@ -340,12 +340,6 @@ pub trait BootInfoSource {
 /// (contrat §4) -- reported here for the same reason `active_slot`/`boot`
 /// go through `BootInfoSource` instead of a direct `crate::ota` value:
 /// `agent.rs` shouldn't need to know it's backed by `iobewi_esp_ota`.
-pub trait DeviceMetadata {
-    fn chip_name(&self) -> &'static str;
-    fn ram_size(&self) -> u32;
-    fn partition_layout(&self) -> &'static str;
-}
-
 /// `GET /v1alpha1/info` response body (contrat §4).
 #[derive(Serialize)]
 pub struct Info {
