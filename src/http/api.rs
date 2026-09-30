@@ -31,7 +31,7 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB, O, H, B, M, I, AB, APPB, RB, OB>(
+pub async fn serve<L, R, TB, O, H, B, M, OM, I, AB, APPB, RB, OB>(
     listener: &mut L,
     ota_backend: O,
     storage: &'static H,
@@ -43,6 +43,7 @@ pub async fn serve<L, R, TB, O, H, B, M, I, AB, APPB, RB, OB>(
     tls_backend: TB,
     boot: &'static B,
     metadata: &'static M,
+    ota_metadata: &'static OM,
     identity: &'static I,
 ) -> !
 where
@@ -52,8 +53,9 @@ where
     O: iobewi_ota::http::ControlBackend + iobewi_ota::http::WriteBackend + Clone + 'static,
     H: agent::StorageHealth,
     B: agent::BootInfoSource,
-    M: agent::DeviceMetadata,
-    I: agent::DeviceIdentity,
+    M: iobewi_device::DeviceMetadata,
+    OM: iobewi_ota::OtaPlatformMetadata,
+    I: iobewi_device::DeviceIdentity,
     AB: ConfigBackend + 'static,
     APPB: ConfigBackend,
     RB: ConfigBackend,
@@ -66,7 +68,7 @@ where
                 if !agent::is_authorized(agent_config, token.as_deref().unwrap_or("")).await {
                     return unauthorized();
                 }
-                json_ok(serde_json::to_string(&agent::info(boot, metadata, identity, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
+                json_ok(serde_json::to_string(&agent::info(boot, metadata, ota_metadata, identity, agent_config, app_config, runtime_config, ota_config).await).unwrap_or_default())
             }),
         )
         .route(
