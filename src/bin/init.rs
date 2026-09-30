@@ -9,6 +9,8 @@
 extern crate alloc;
 
 use iobewi_config_space::ConfigManager;
+use iobewi_device::{DeviceIdentity, DeviceMetadata};
+use iobewi_esp_device::{EspDeviceIdentity, EspDeviceMetadata};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use embassy_executor::Spawner;
 use esp_backtrace as _;
@@ -150,7 +152,7 @@ async fn main(spawner: Spawner) -> ! {
     // `Tls` is active. Creating it draws no randomness itself, so the ADC-backed
     // source above still covers every byte the key generation consumes.
     let tls_handle = tls::init(embewi_agent_esp::time::now);
-    let identity_name = agent::node_id(agent_config, &embewi_agent_esp::supervisor::EspDeviceIdentity).await;
+    let identity_name = agent::node_id(agent_config, &EspDeviceIdentity).await;
     tls::ensure_server_identity(tls_config, &identity_name)
         .await
         .expect("bootstrap TLS identity unavailable");
@@ -184,21 +186,14 @@ async fn main(spawner: Spawner) -> ! {
         .into_async()
         .split();
 
-    // Device identity for Improv's GetDeviceInfo RPC is entirely a
-    // composition-root concern (efuse MAC, chip metadata) -- `provisioning`
-    // itself only ever encodes the `DeviceInfo` it's handed. Device name =
-    // a fixed prefix + a suffix from the efuse-burned MAC address, unique
-    // per physical board. Matches the convention seen in ESPHome's own
-    // Improv device info (e.g. "...-d5eb28").
-    let mac = embewi_agent_esp::supervisor::mac_suffix();
-    let device_name = alloc::format!("embewi-init-{:02x}{:02x}{:02x}", mac[0], mac[1], mac[2]);
+    // Device identity and static metadata come from the portable IOBEWI
+    // capabilities, implemented here by the selected ESP adapter. Embewi
+    // only applies its application-specific name prefix.
+    let device_name = alloc::format!("embewi-init-{}", EspDeviceIdentity.hardware_id());
     let device_info = provisioning::DeviceInfo {
         firmware_name: "embewi-init",
         firmware_version: env!("CARGO_PKG_VERSION"),
-        // Not a literal: tracks whichever chip `esp-hal`'s own feature flags
-        // (in Cargo.toml) are actually built for, so it can't drift when the
-        // target changes -- e.g. from ESP32-C3 to ESP32-S3.
-        chip_name: esp_metadata_generated::chip_pretty!(),
+        chip_name: EspDeviceMetadata.chip_name(),
         device_name: &device_name,
     };
 
