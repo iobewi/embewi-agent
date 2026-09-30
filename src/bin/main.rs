@@ -135,7 +135,7 @@ async fn main(spawner: Spawner) -> ! {
     let runtime_space = config_manager
         .claim("runtime", runtime_config::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for runtime config");
-    static RUNTIME_CONFIG: StaticCell<runtime_config::RuntimeConfig> = StaticCell::new();
+    static RUNTIME_CONFIG: StaticCell<runtime_config::RuntimeConfig<NvsConfigBackend>> = StaticCell::new();
     let runtime_config = &*RUNTIME_CONFIG.init(
         runtime_config::RuntimeConfig::new(runtime_space)
             .await

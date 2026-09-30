@@ -9,11 +9,9 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use iobewi_config_space::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use log::warn;
 use serde::{Deserialize, Serialize};
-
-use iobewi_esp_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"RCF1";
 const HEADER_LEN: usize = 6;
@@ -23,7 +21,7 @@ const MAX_VALUE_LEN: usize = 63;
 /// Maximum serialized McuConfigMap payload. This bounds fleet-supplied runtime
 /// configuration while keeping NVS admission deterministic at boot.
 pub const CONFIG_BUDGET: Budget = Budget::new(2048);
-pub type RuntimeConfigSpace = ConfigSpace<NvsConfigBackend>;
+pub type RuntimeConfigSpace<B> = ConfigSpace<B>;
 
 #[derive(Debug)]
 pub enum RuntimeConfigError {
@@ -45,8 +43,8 @@ pub struct ConfigView {
     nvs: BTreeMap<String, String>,
 }
 
-pub struct RuntimeConfig {
-    space: RuntimeConfigSpace,
+pub struct RuntimeConfig<B: ConfigBackend> {
+    space: RuntimeConfigSpace<B>,
     active_generation: u64,
     active: BTreeMap<String, String>,
 }
@@ -117,10 +115,10 @@ fn decode(raw: &[u8]) -> Option<BTreeMap<String, String>> {
     (offset == raw.len()).then_some(out)
 }
 
-impl RuntimeConfig {
+impl<B: ConfigBackend> RuntimeConfig<B> {
     /// Takes the contract's "active" snapshot once at boot. Later POSTs only
     /// replace the persisted value; this snapshot changes on the next reboot.
-    pub async fn new(space: RuntimeConfigSpace) -> Result<Self, RuntimeConfigError> {
+    pub async fn new(space: RuntimeConfigSpace<B>) -> Result<Self, RuntimeConfigError> {
         match space.load().await {
             Ok(Some(snapshot)) => {
                 let active = decode(&snapshot.data).ok_or(RuntimeConfigError::Corrupt)?;

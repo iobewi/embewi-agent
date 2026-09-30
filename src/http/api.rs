@@ -39,13 +39,13 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB, H, B, M, I, AB, APPB>(
+pub async fn serve<L, R, TB, H, B, M, I, AB, APPB, RB>(
     listener: &mut L,
     flash: &'static SharedFlash,
     storage: &'static H,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     app_config: &'static ConfigSpace<APPB>,
-    runtime_config: &'static crate::runtime_config::RuntimeConfig,
+    runtime_config: &'static crate::runtime_config::RuntimeConfig<RB>,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: R,
     tls_backend: TB,
@@ -63,6 +63,7 @@ where
     I: agent::DeviceIdentity,
     AB: ConfigBackend + 'static,
     APPB: ConfigBackend,
+    RB: ConfigBackend,
 {
     let api_routes = HttpRouter::new()
         .route(
