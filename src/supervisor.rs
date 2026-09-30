@@ -7,7 +7,12 @@ use embassy_executor::Spawner;
 use embassy_net::Stack;
 
 use iobewi_config_space::{ConfigBackend, ConfigSpace};
+use iobewi_device::{DeviceIdentity, DeviceMetadata};
+use iobewi_indicator::StatusIndicatorCapabilities;
 use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_esp_device::{EspDeviceIdentity, EspDeviceMetadata};
+use iobewi_esp_entropy::EspEntropySource;
+use iobewi_esp_indicator::EspStatusIndicator;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_log_stream::EspLogTransport;
@@ -18,6 +23,8 @@ use iobewi_esp_tls::service::EspClientTransport;
 use iobewi_ota::config_space::ConfigSpaceMetadataStore;
 use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
+use iobewi_ota::OtaPlatformMetadata;
+use iobewi_esp_ota::EspOtaPlatformMetadata;
 use static_cell::StaticCell;
 
 /// The trait is local to `embewi-agent` (`agent::StorageHealth`), so
@@ -82,7 +89,7 @@ impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> ControlBackend fo
             &EspBoot(self.flash),
             &request.chip,
             &request.partition_layout,
-            platform_chip_name(),
+            ESP_DEVICE_METADATA.chip_name(),
             iobewi_esp_ota::PARTITION_LAYOUT,
             u64::from(request.size),
         ).await {
@@ -213,94 +220,21 @@ impl crate::http::config::FactoryOta for EspFactoryOta {
     }
 }
 
-/// GPIO numbers this firmware can drive as the status LED, exposed to the
-/// factory-provisioning HTTP form. Must stay exactly in sync with
-/// `bin/main.rs`'s own `match gpio { 0 => peripherals.GPIO0, ... }` --
-/// this is the set that runtime match actually knows how to apply, not
-/// every pin the chip physically has.
-pub const STATUS_LED_GPIOS: &[u8] = &[
-    0, 1, 2, 3, 4, 5, 6, 7,
-    8, 9, 10, 11, 12, 13, 14, 15,
-    16, 17, 18, 19, 20, 21,
-];
-
-/// Last 3 bytes of the efuse-burned MAC address: the device-unique suffix
-/// every ESP composition-root identity/name derived from hardware uses.
-/// Shared with `bin/init.rs`'s Improv device name to avoid two independent
-/// reads of the same efuse, even though the two names built from it
-/// (`embewi-xxxxxx` vs `embewi-init-xxxxxx`) stay distinct application
-/// concerns.
-pub fn mac_suffix() -> [u8; 3] {
-    let mac = esp_hal::efuse::base_mac_address();
-    let mac = mac.as_bytes();
-    [mac[3], mac[4], mac[5]]
-}
-
-/// ZST adapter for `agent::DeviceIdentity`: the fallback `node_id` used
-/// until one is persisted. Produces exactly the same `embewi-xxxxxx` shape
-/// as before this capability existed.
-#[derive(Clone, Copy)]
-pub struct EspDeviceIdentity;
-
-impl crate::agent::DeviceIdentity for EspDeviceIdentity {
-    fn fallback_node_id(&self) -> alloc::string::String {
-        let mac = mac_suffix();
-        alloc::format!("embewi-{:02x}{:02x}{:02x}", mac[0], mac[1], mac[2])
-    }
-}
-
-/// ZST adapter for `agent::TokenEntropy`. Same hardware RNG source used
-/// today -- not the ADC-backed `TrngSource` used for the pre-Wi-Fi TLS
-/// bootstrap identity, which stays its own, separate policy.
-#[derive(Clone, Copy)]
-pub struct EspTokenEntropy;
-
-impl crate::agent::TokenEntropy for EspTokenEntropy {
-    fn fill_random(&self, output: &mut [u8]) {
-        esp_hal::rng::Rng::new().read(output);
-    }
-}
-
-/// The chip identity used both for `/info`'s `chip` field
-/// (`EspDeviceMetadata::chip_name`) and `/ota/prepare`'s compatibility
-/// check (`AgentOtaBackend::prepare`) -- one source, so they can't
-/// silently diverge.
-fn platform_chip_name() -> &'static str {
-    esp_metadata_generated::chip_pretty!()
-}
-
-/// ZST adapter for `agent::DeviceMetadata`.
-#[derive(Clone, Copy)]
-pub struct EspDeviceMetadata;
-
-impl crate::agent::DeviceMetadata for EspDeviceMetadata {
-    fn chip_name(&self) -> &'static str {
-        platform_chip_name()
-    }
-
-    fn ram_size(&self) -> u32 {
-        let dram = esp_metadata_generated::memory_range!("DRAM");
-        (dram.end - dram.start) as u32
-    }
-
-    fn partition_layout(&self) -> &'static str {
-        iobewi_esp_ota::PARTITION_LAYOUT
-    }
-}
-
-/// One process-wide instance of each ZST platform capability -- there is no
-/// state to construct, so a plain `static` gives every task a `'static`
-/// reference without a `StaticCell`.
+/// Process-wide handles for portable IOBEWI capabilities supplied by the
+/// selected ESP platform adapter. Embewi consumes only the IOBEWI traits;
+/// the concrete ESP types are chosen here at composition.
 static ESP_DEVICE_IDENTITY: EspDeviceIdentity = EspDeviceIdentity;
-static ESP_TOKEN_ENTROPY: EspTokenEntropy = EspTokenEntropy;
 static ESP_DEVICE_METADATA: EspDeviceMetadata = EspDeviceMetadata;
+static ESP_OTA_METADATA: EspOtaPlatformMetadata = EspOtaPlatformMetadata;
+static ESP_ENTROPY: EspEntropySource = EspEntropySource;
+static ESP_STATUS_INDICATOR: EspStatusIndicator = EspStatusIndicator;
 
 struct AgentLogConfig<I: 'static> {
     space: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     identity: &'static I,
 }
 
-impl<I: crate::agent::DeviceIdentity> iobewi_log_stream::LogConfig for AgentLogConfig<I> {
+impl<I: DeviceIdentity> iobewi_log_stream::LogConfig for AgentLogConfig<I> {
     async fn ctrl_url(&self) -> alloc::string::String { crate::agent::ctrl_url(self.space).await }
     async fn token(&self) -> alloc::string::String { crate::agent::token(self.space).await }
     async fn node_id(&self) -> alloc::string::String { crate::agent::node_id(self.space, self.identity).await }
@@ -412,6 +346,7 @@ async fn run_http_api(
         tls_backend,
         boot,
         &ESP_DEVICE_METADATA,
+        &ESP_OTA_METADATA,
         &ESP_DEVICE_IDENTITY,
     ).await
 }
@@ -450,8 +385,8 @@ async fn run_http_provisioning(
         factory_agent,
         reboot,
         &ESP_DEVICE_IDENTITY,
-        &ESP_TOKEN_ENTROPY,
-        STATUS_LED_GPIOS,
+        &ESP_ENTROPY,
+        ESP_STATUS_INDICATOR.configurable_pins(),
     ).await
 }
 
