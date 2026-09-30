@@ -976,12 +976,15 @@ dependencies = [
  "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
- "esp-metadata-generated",
  "esp-println",
  "esp-rtos",
  "improv-serial",
  "iobewi-config-space",
+ "iobewi-device",
+ "iobewi-entropy",
  "iobewi-esp-config-space",
+ "iobewi-esp-device",
+ "iobewi-esp-entropy",
  "iobewi-esp-flash",
  "iobewi-esp-https",
  "iobewi-esp-indicator",
@@ -991,7 +994,7 @@ dependencies = [
  "iobewi-esp-runtime",
  "iobewi-esp-tls",
  "iobewi-esp-wifi",
- "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3)",
+ "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df)",
  "iobewi-https",
  "iobewi-indicator",
  "iobewi-log-stream",
@@ -1903,14 +1906,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-device"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
+
+[[package]]
+name = "iobewi-entropy"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
+
+[[package]]
+name = "iobewi-esp-device"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
+dependencies = [
+ "esp-hal",
+ "esp-metadata-generated",
+ "iobewi-device",
+]
+
+[[package]]
+name = "iobewi-esp-entropy"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
+dependencies = [
+ "esp-hal",
+ "iobewi-entropy",
+]
+
+[[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 
 [[package]]
 name = "iobewi-esp-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "esp-nvs",
  "iobewi-config-space",
@@ -1922,7 +1954,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-flash"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-sync 0.8.0",
  "embedded-storage",
@@ -1935,11 +1967,11 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-http"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-net",
  "esp-hal",
- "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3)",
+ "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df)",
  "log",
  "picoserve",
 ]
@@ -1947,7 +1979,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-https"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-net",
  "embassy-time",
@@ -1962,7 +1994,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-indicator"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=294a8934240bff07aca5a01cdd43391fe68fa594#294a8934240bff07aca5a01cdd43391fe68fa594"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-executor",
  "embassy-time",
@@ -1976,7 +2008,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-log-stream"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-net",
  "esp-hal",
@@ -1990,7 +2022,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-nvs"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embedded-storage",
  "esp-nvs",
@@ -2001,7 +2033,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-ota"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-time",
  "embedded-storage",
@@ -2019,7 +2051,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-ota-boot"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "sha2",
 ]
@@ -2027,7 +2059,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-partitions"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embedded-storage",
  "esp-bootloader-esp-idf",
@@ -2037,7 +2069,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-reboot"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-executor",
  "embassy-sync 0.8.0",
@@ -2059,7 +2091,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-tls"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-net",
  "embassy-sync 0.8.0",
@@ -2080,7 +2112,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-watchdog"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "esp-hal",
 ]
@@ -2088,7 +2120,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-wifi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi-esp?rev=e44f706f16693551a20c7f65058fa07276755bbf#e44f706f16693551a20c7f65058fa07276755bbf"
+source = "git+https://github.com/iobewi/iobewi-esp?rev=d51f039a8c9f6a346133f71db04d43915cb34031#d51f039a8c9f6a346133f71db04d43915cb34031"
 dependencies = [
  "embassy-executor",
  "embassy-net",
@@ -2101,7 +2133,7 @@ dependencies = [
 [[package]]
 name = "iobewi-http"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 dependencies = [
  "edge-http",
  "edge-ws",
@@ -2129,16 +2161,16 @@ dependencies = [
 [[package]]
 name = "iobewi-https"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 dependencies = [
- "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3)",
+ "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df)",
  "picoserve",
 ]
 
 [[package]]
 name = "iobewi-indicator"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=283886febc95796169d55049a4e19aca11a55927#283886febc95796169d55049a4e19aca11a55927"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 
 [[package]]
 name = "iobewi-log-stream"
@@ -2175,13 +2207,13 @@ dependencies = [
 [[package]]
 name = "iobewi-ota"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 dependencies = [
  "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
  "iobewi-config-space",
- "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3)",
+ "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df)",
  "serde",
  "serde_json",
  "sha2",
@@ -2195,10 +2227,10 @@ source = "git+https://github.com/iobewi/iobewi?rev=2c0b02a6e797e046db994c4eb0bbf
 [[package]]
 name = "iobewi-tls"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 dependencies = [
  "iobewi-config-space",
- "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3)",
+ "iobewi-http 0.1.0 (git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df)",
  "log",
  "serde",
  "serde_json",
@@ -2215,7 +2247,7 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=7db7f75ffbc99749fda7208d0de9c984518a08d3#7db7f75ffbc99749fda7208d0de9c984518a08d3"
+source = "git+https://github.com/iobewi/iobewi?rev=c47100e36b429dcfca1c735749f6079a3b2463df#c47100e36b429dcfca1c735749f6079a3b2463df"
 dependencies = [
  "iobewi-config-space",
  "log",
