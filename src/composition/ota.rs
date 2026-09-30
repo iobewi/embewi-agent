@@ -4,11 +4,14 @@ use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_device::EspDeviceMetadata;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::service::{EspBoot, EspUploadWriter};
+use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_ota::config_space::ConfigSpaceMetadataStore;
 use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
+use iobewi_ota::OtaPlatformMetadata;
 
 static DEVICE_METADATA: EspDeviceMetadata = EspDeviceMetadata;
+static OTA_METADATA: EspOtaPlatformMetadata = EspOtaPlatformMetadata;
 
 /// Composition adapter for `agent::BootInfoSource`: converts the ESP
 /// bootloader's `otadata::BootEntry` to the portable `agent::BootSnapshot`.
@@ -64,7 +67,7 @@ impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> ControlBackend fo
             &request.chip,
             &request.partition_layout,
             DEVICE_METADATA.chip_name(),
-            iobewi_esp_ota::PARTITION_LAYOUT,
+            OTA_METADATA.partition_layout(),
             u64::from(request.size),
         ).await {
             Ok(target) => PrepareResponse::accept(target),
