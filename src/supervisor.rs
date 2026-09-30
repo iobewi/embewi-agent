@@ -6,7 +6,7 @@
 use embassy_executor::Spawner;
 use embassy_net::Stack;
 
-use iobewi_config_space::ConfigSpace;
+use iobewi_config_space::{ConfigBackend, ConfigSpace};
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_https::EspTlsListener;
@@ -14,6 +14,8 @@ use iobewi_esp_log_stream::EspLogTransport;
 use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
+use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
+use iobewi_ota::metadata::SessionParams;
 use static_cell::StaticCell;
 
 /// The trait is local to `embewi-agent` (`agent::StorageHealth`), so
@@ -43,6 +45,104 @@ impl crate::agent::BootInfoSource for AgentBootInfo {
     async fn boot_info(&self) -> crate::agent::BootSnapshot {
         let boot = crate::ota::boot_info(self.flash).await;
         crate::agent::BootSnapshot { slot: boot.slot, seq: boot.seq, state: boot.state }
+    }
+}
+
+/// Bind the portable IOBEWI OTA HTTP upload service to the agent's
+/// authorization policy and the ESP OTA adapter. A composition adapter
+/// (`http::api::serve`'s injected `ControlBackend + WriteBackend`), not
+/// application logic -- the portable HTTP layer never constructs this
+/// itself, only mounts whatever it's handed.
+pub struct AgentOtaBackend<AB: 'static, OB: 'static> {
+    pub flash: &'static SharedFlash,
+    pub ota_config: &'static crate::ota::OtaConfigSpace<OB>,
+    pub agent_config: &'static crate::agent::AgentConfigSpace<AB>,
+}
+
+impl<AB: 'static, OB: 'static> Clone for AgentOtaBackend<AB, OB> {
+    fn clone(&self) -> Self {
+        Self { flash: self.flash, ota_config: self.ota_config, agent_config: self.agent_config }
+    }
+}
+
+impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> ControlBackend for AgentOtaBackend<AB, OB> {
+    async fn prepare(&self, request: &PrepareRequest) -> PrepareResponse {
+        crate::ota::prepare(self.flash, self.ota_config, request).await
+    }
+
+    async fn activate(&self, deployment_id: &str) -> Result<alloc::string::String, ActivateFailure> {
+        crate::ota::activate(self.flash, self.ota_config, deployment_id).await.map_err(|error| match error {
+            crate::ota::ActivateError::NotStaged => ActivateFailure::NotStaged,
+            crate::ota::ActivateError::DeploymentMismatch => ActivateFailure::DeploymentMismatch,
+            crate::ota::ActivateError::Storage(_) => ActivateFailure::Storage,
+        })
+    }
+}
+
+impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> WriteBackend for AgentOtaBackend<AB, OB> {
+    async fn authorize(&self, token: &str) -> bool {
+        crate::agent::is_authorized(self.agent_config, token).await
+    }
+
+    async fn in_progress(&self) -> bool {
+        crate::ota::write_in_progress().await
+    }
+
+    async fn received(&self) -> u32 {
+        crate::ota::write_received().await
+    }
+
+    async fn written(&self) -> u32 {
+        crate::ota::write_written().await
+    }
+
+    async fn params_match(&self, params: &SessionParams) -> bool {
+        crate::ota::write_params_match(params).await
+    }
+
+    async fn begin(&self, params: SessionParams) -> Result<(), BeginError> {
+        crate::ota::write_begin(self.flash, self.ota_config, params).await.map_err(|error| match error {
+            crate::ota::BeginError::Busy => BeginError::Busy,
+            crate::ota::BeginError::TooLarge => BeginError::TooLarge,
+            crate::ota::BeginError::Conflict => BeginError::Conflict,
+            crate::ota::BeginError::Storage(_) => BeginError::Storage,
+        })
+    }
+
+    async fn chunk(&self, bytes: &[u8]) -> bool {
+        crate::ota::write_chunk(bytes).await
+    }
+
+    async fn finish(&self) -> Result<WriteFinishOk, WriteFinishError> {
+        crate::ota::write_finish(self.ota_config).await
+            .map(|ok| WriteFinishOk { written: ok.written, digest: ok.digest })
+            .map_err(|error| match error {
+                crate::ota::WriteFinishError::NotWriting => WriteFinishError::NotWriting,
+                crate::ota::WriteFinishError::DigestMismatch => WriteFinishError::DigestMismatch,
+                crate::ota::WriteFinishError::Incomplete => WriteFinishError::Incomplete,
+                crate::ota::WriteFinishError::Storage(_) => WriteFinishError::Storage,
+            })
+    }
+}
+
+/// Composition adapter for the factory-provisioning HTTP page's
+/// `http::config::FactoryOta` port: verifies/stages the preloaded factory
+/// agent image and activates it, delegating to `crate::ota`'s ESP OTA
+/// adapter. The HTTP page never sees `SharedFlash`/`OtaConfigSpace`, only
+/// whether each step succeeded.
+#[derive(Clone, Copy)]
+struct EspFactoryOta {
+    flash: &'static SharedFlash,
+    ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
+}
+
+impl crate::http::config::FactoryOta for EspFactoryOta {
+    async fn stage_preloaded(&self, image: crate::ota::PreloadedAgent) -> Result<(), ()> {
+        crate::ota::stage_preloaded_agent(self.flash, self.ota_config, image).await.map(|_| ()).map_err(|_| ())
+    }
+
+    async fn activate(&self, deployment_id: &str) -> Result<(), ()> {
+        crate::ota::activate(self.flash, self.ota_config, deployment_id).await.map(|_| ()).map_err(|_| ())
     }
 }
 
@@ -209,9 +309,10 @@ async fn run_http_api(
     let tls_backend = AgentTlsProvisioningBackend { tls_config, agent_config };
     static BOOT: StaticCell<AgentBootInfo> = StaticCell::new();
     let boot = &*BOOT.init(AgentBootInfo { flash });
+    let ota_backend = AgentOtaBackend { flash, ota_config, agent_config };
     crate::http::api::serve(
         &mut listener,
-        flash,
+        ota_backend,
         nvs_backend,
         agent_config,
         app_config,
@@ -249,13 +350,13 @@ async fn run_http_provisioning(
         &mut rx,
         &mut tx,
     );
+    let factory_ota = EspFactoryOta { flash, ota_config };
     crate::http::config::serve(
         &mut listener,
-        flash,
         agent_config,
         hardware_config,
         lifecycle_config,
-        ota_config,
+        factory_ota,
         factory_agent,
         reboot,
         &ESP_DEVICE_IDENTITY,

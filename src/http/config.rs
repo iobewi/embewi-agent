@@ -17,9 +17,18 @@ use iobewi_ota::http::RebootPort;
 
 use crate::agent;
 use crate::ota::BootstrapState;
-use iobewi_esp_flash::SharedFlash;
 
 use super::{STYLE_CSS, html_escape};
+
+/// Narrow port for the factory-provisioning form's OTA needs: verify/stage
+/// the preloaded first agent image and activate it. Deliberately opaque to
+/// the physical storage and partition layout behind it -- this module only
+/// ever needs to know whether each step succeeded.
+#[allow(async_fn_in_trait)]
+pub trait FactoryOta {
+    async fn stage_preloaded(&self, image: crate::ota::PreloadedAgent) -> Result<(), ()>;
+    async fn activate(&self, deployment_id: &str) -> Result<(), ()>;
+}
 
 const INDEX_TEMPLATE: &str = include_str!("index.html");
 const CONFIRM_TEMPLATE: &str = include_str!("confirm.html");
@@ -73,13 +82,12 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve<L, R, I, E, AB, HB, LB, OB>(
+pub async fn serve<L, R, FO, I, E, AB, HB, LB>(
     listener: &mut L,
-    flash: &'static SharedFlash,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace<HB>,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace<LB>,
-    ota_config: &'static crate::ota::OtaConfigSpace<OB>,
+    factory_ota: FO,
     factory_agent: crate::ota::PreloadedAgent,
     reboot: R,
     identity: &'static I,
@@ -88,12 +96,12 @@ pub async fn serve<L, R, I, E, AB, HB, LB, OB>(
 where
     L: iobewi_https::TlsListener,
     R: RebootPort + Clone + 'static,
+    FO: FactoryOta + Clone + 'static,
     I: agent::DeviceIdentity,
     E: agent::TokenEntropy,
     AB: iobewi_config_space::ConfigBackend,
     HB: iobewi_config_space::ConfigBackend,
     LB: iobewi_config_space::ConfigBackend,
-    OB: iobewi_config_space::ConfigBackend,
 {
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
@@ -124,6 +132,7 @@ where
                 // internally, so cloning it here is safe even though this
                 // handler only ever expects to actually trigger it once.
                 let reboot = reboot.clone();
+                let factory_ota = factory_ota.clone();
                 async move {
                 let lifecycle = crate::ota::bootstrap_state(lifecycle_config).await;
                 if !matches!(
@@ -170,7 +179,7 @@ where
                 }
                 let token = agent::token(agent_config).await;
 
-                if crate::ota::stage_preloaded_agent(flash, ota_config, factory_agent)
+                if factory_ota.stage_preloaded(factory_agent)
                     .await
                     .is_err()
                 {
@@ -199,7 +208,7 @@ where
                     .with_content_type("text/html; charset=utf-8");
                 }
 
-                if crate::ota::activate(flash, ota_config, factory_agent.deployment_id)
+                if factory_ota.activate(factory_agent.deployment_id)
                     .await
                     .is_err()
                 {

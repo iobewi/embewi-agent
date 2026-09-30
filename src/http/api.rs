@@ -15,16 +15,8 @@ use iobewi_ota::http::RebootPort;
 
 use crate::agent;
 use iobewi_config_space::{ConfigBackend, ConfigSpace};
-use crate::ota;
-// SharedFlash is still needed here only to construct `AgentOtaBackend`
-// below (the OTA backend that legitimately owns the flash handle); it is
-// no longer used for `/info`, which now goes through `BootInfoSource`.
-use iobewi_esp_flash::SharedFlash;
 
 use super::{json_error, json_ok, unauthorized};
-
-mod ota_write;
-use ota_write::AgentOtaBackend;
 
 /// Public API namespace selected by EmBewi, independent of service routes.
 pub(crate) const API_PREFIX: &str = "/v1alpha1";
@@ -39,9 +31,9 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB, H, B, M, I, AB, APPB, RB, OB>(
+pub async fn serve<L, R, TB, O, H, B, M, I, AB, APPB, RB, OB>(
     listener: &mut L,
-    flash: &'static SharedFlash,
+    ota_backend: O,
     storage: &'static H,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     app_config: &'static ConfigSpace<APPB>,
@@ -57,6 +49,7 @@ where
     L: iobewi_https::TlsListener,
     R: RebootPort + Clone + 'static,
     TB: iobewi_tls::http::ProvisioningBackend + Clone + 'static,
+    O: iobewi_ota::http::ControlBackend + iobewi_ota::http::WriteBackend + Clone + 'static,
     H: agent::StorageHealth,
     B: agent::BootInfoSource,
     M: agent::DeviceMetadata,
@@ -188,10 +181,11 @@ where
                 ))
             }),
         )
-        // OTA owns its relative routes. EmBewi supplies only the platform
-        // backend and the same reboot capability used by /reboot.
+        // OTA owns its relative routes. EmBewi supplies only the injected
+        // platform backend and the same reboot capability used by /reboot --
+        // this module never constructs the backend itself, only mounts it.
         .nest("/ota", iobewi_ota::http::routes(
-            AgentOtaBackend { flash, ota_config, agent_config },
+            ota_backend,
             reboot,
         ))
         // The TLS service owns authentication and the wire contract; the
