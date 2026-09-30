@@ -368,14 +368,14 @@ pub struct Info {
     app_port: u16,
 }
 
-pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
+pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, OB: ConfigBackend, B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
     boot: &B,
     metadata: &M,
     identity: &I,
     agent_config: &ConfigSpace<AB>,
     app_config: &ConfigSpace<APPB>,
     runtime_config: &crate::runtime_config::RuntimeConfig<RB>,
-    ota_config: &crate::ota::OtaConfigSpace,
+    ota_config: &crate::ota::OtaConfigSpace<OB>,
 ) -> Info {
     let config_generation = runtime_config.generation().await;
     let app_port = crate::app_config::port(app_config).await;

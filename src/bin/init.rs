@@ -103,7 +103,7 @@ async fn main(spawner: Spawner) -> ! {
     let ota_config = config_manager
         .claim("ota", ota::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for OTA metadata");
-    static OTA_CONFIG: StaticCell<ota::OtaConfigSpace> = StaticCell::new();
+    static OTA_CONFIG: StaticCell<ota::OtaConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let ota_config = &*OTA_CONFIG.init(ota_config);
 
     // TLS is claimed and established before Wi-Fi is even instantiated.

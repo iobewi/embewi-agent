@@ -7,19 +7,19 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
 
-pub struct AgentOtaBackend<AB: 'static> {
+pub struct AgentOtaBackend<AB: 'static, OB: 'static> {
     pub flash: &'static SharedFlash,
-    pub ota_config: &'static ota::OtaConfigSpace,
+    pub ota_config: &'static ota::OtaConfigSpace<OB>,
     pub agent_config: &'static agent::AgentConfigSpace<AB>,
 }
 
-impl<AB: 'static> Clone for AgentOtaBackend<AB> {
+impl<AB: 'static, OB: 'static> Clone for AgentOtaBackend<AB, OB> {
     fn clone(&self) -> Self {
         Self { flash: self.flash, ota_config: self.ota_config, agent_config: self.agent_config }
     }
 }
 
-impl<AB: ConfigBackend + 'static> ControlBackend for AgentOtaBackend<AB> {
+impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> ControlBackend for AgentOtaBackend<AB, OB> {
     async fn prepare(&self, request: &PrepareRequest) -> PrepareResponse {
         ota::prepare(self.flash, self.ota_config, request).await
     }
@@ -33,7 +33,7 @@ impl<AB: ConfigBackend + 'static> ControlBackend for AgentOtaBackend<AB> {
     }
 }
 
-impl<AB: ConfigBackend + 'static> WriteBackend for AgentOtaBackend<AB> {
+impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> WriteBackend for AgentOtaBackend<AB, OB> {
     async fn authorize(&self, token: &str) -> bool {
         agent::is_authorized(self.agent_config, token).await
     }

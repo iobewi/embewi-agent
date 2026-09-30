@@ -131,11 +131,11 @@ const SELFCHECK_DEADLINE: Duration = Duration::from_millis(iobewi_ota::metadata:
 const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 
-async fn load_metadata(space: &OtaConfigSpace) -> Result<OtaMetadata, OtaMetadataError> {
+async fn load_metadata<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Result<OtaMetadata, OtaMetadataError> {
     iobewi_ota::metadata::load_metadata(&OtaStore(space)).await
 }
 
-pub async fn staged(space: &OtaConfigSpace) -> Staged {
+pub async fn staged<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Staged {
     match load_metadata(space).await {
         Ok(metadata) => metadata.staged,
         Err(e) => {
@@ -145,12 +145,12 @@ pub async fn staged(space: &OtaConfigSpace) -> Staged {
     }
 }
 
-pub async fn clear_staged(space: &OtaConfigSpace) -> Result<(), OtaMetadataError> {
+pub async fn clear_staged<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Result<(), OtaMetadataError> {
     iobewi_ota::metadata::clear_staged(&OtaStore(space)).await
 }
 
 /// Digest of the currently-running, validated firmware.
-pub async fn active_digest(space: &OtaConfigSpace) -> String {
+pub async fn active_digest<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> String {
     load_metadata(space)
         .await
         .map(|metadata| metadata.active_digest)
@@ -158,7 +158,7 @@ pub async fn active_digest(space: &OtaConfigSpace) -> String {
 }
 
 /// The deployment_id of the currently-running, validated firmware.
-pub async fn active_deployment_id(space: &OtaConfigSpace) -> String {
+pub async fn active_deployment_id<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> String {
     load_metadata(space)
         .await
         .map(|metadata| metadata.active_deployment_id)
@@ -181,9 +181,9 @@ pub async fn boot_info(flash: &SharedFlash) -> BootEntry {
 /// Verifies the already-programmed inactive slot and publishes it as a
 /// normal IOBEWI OTA staged transaction. No alternate OTA/write path exists:
 /// factory flashing merely placed the bytes there ahead of time.
-pub async fn stage_preloaded_agent(
+pub async fn stage_preloaded_agent<OB: ConfigBackend>(
     flash: &SharedFlash,
-    ota_config: &OtaConfigSpace,
+    ota_config: &OtaConfigSpace<OB>,
     image: PreloadedAgent,
 ) -> Result<&'static str, PreloadedAgentError> {
     let expected = parse_digest(image.digest).ok_or(PreloadedAgentError::BadDigest)?;
@@ -211,7 +211,7 @@ pub async fn stage_preloaded_agent(
 
 /// Validates compat *before* a single byte transfers (contrat §3: "un
 /// binaire esp32-s3 flashé sur esp32 ne boote pas").
-pub async fn prepare(flash: &SharedFlash, ota_config: &OtaConfigSpace, req: &PrepareRequest) -> PrepareResponse {
+pub async fn prepare<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, req: &PrepareRequest) -> PrepareResponse {
     match iobewi_ota::service::prepare(
         &OtaStore(ota_config), &EspBoot(flash), &req.chip, &req.partition_layout,
         esp_metadata_generated::chip_pretty!(), PARTITION_LAYOUT, u64::from(req.size),
@@ -248,9 +248,9 @@ pub enum BeginError {
     Storage(OtaMetadataError),
 }
 
-pub async fn write_begin(
+pub async fn write_begin<OB: ConfigBackend>(
     flash: &'static SharedFlash,
-    ota_config: &OtaConfigSpace,
+    ota_config: &OtaConfigSpace<OB>,
     params: SessionParams,
 ) -> Result<(), BeginError> {
     // Target selection releases the physical flash lock before the portable
@@ -281,7 +281,7 @@ pub enum WriteFinishError {
     Storage(OtaMetadataError),
 }
 
-pub async fn write_finish(ota_config: &OtaConfigSpace) -> Result<WriteFinishOk, WriteFinishError> {
+pub async fn write_finish<OB: ConfigBackend>(ota_config: &OtaConfigSpace<OB>) -> Result<WriteFinishOk, WriteFinishError> {
     let result = UPLOAD.finish(&OtaStore(ota_config)).await.map_err(|error| match error {
         iobewi_ota::service::upload::FinishError::NotWriting => WriteFinishError::NotWriting,
         iobewi_ota::service::upload::FinishError::DigestMismatch(computed) => {
@@ -310,7 +310,7 @@ pub async fn write_finish(ota_config: &OtaConfigSpace) -> Result<WriteFinishOk, 
 /// own fallback ("Reprise après reboot de l'agent entre write et
 /// activate"), and works identically whether or not this device rebooted
 /// since `/ota/write` finished.
-pub async fn activate(flash: &SharedFlash, ota_config: &OtaConfigSpace, deployment_id: &str) -> Result<String, ActivateError> {
+pub async fn activate<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, deployment_id: &str) -> Result<String, ActivateError> {
     let slot = iobewi_ota::service::activate_staged(
         &OtaStore(ota_config), &EspBoot(flash), deployment_id,
     ).await.map_err(|error| match error {
@@ -344,10 +344,10 @@ pub fn arm_boot_watchdog() {
     iobewi_esp_ota::service::arm_watchdog_ms(WATCHDOG_DEADLINE_MS);
 }
 
-pub async fn confirm_pending(
+pub async fn confirm_pending<OB: ConfigBackend>(
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
-    ota_config: &'static OtaConfigSpace,
+    ota_config: &'static OtaConfigSpace<OB>,
 ) {
     // Fault injection remains a firmware-only validation hook. This loop
     // starves the executor so only the hardware watchdog can recover.
@@ -392,10 +392,10 @@ pub async fn confirm_pending(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootDisposition { Stable, PendingVerify }
 
-pub async fn on_boot(
+pub async fn on_boot<OB: ConfigBackend>(
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
-    ota_config: &'static OtaConfigSpace,
+    ota_config: &'static OtaConfigSpace<OB>,
 ) -> BootDisposition {
     use iobewi_ota::service::boot::BootStatus;
     let platform = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: nvs_backend };

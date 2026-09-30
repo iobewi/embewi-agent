@@ -91,13 +91,13 @@ fn split_host_port(ctrl_url: &str) -> Option<(&str, u16)> {
 /// can't be generic, so the platform's concrete transport type is chosen at
 /// the spawn site instead (see `supervisor.rs`'s `run_heartbeat` task, which
 /// constructs the platform transport and calls this).
-pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend>(
+pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend, OB: iobewi_config_space::ConfigBackend>(
     transport: &'static T,
     diagnostics: D,
     identity: &'static I,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<RB>,
-    ota_config: &'static crate::ota::OtaConfigSpace,
+    ota_config: &'static crate::ota::OtaConfigSpace<OB>,
 ) -> ! {
     // Declared once outside the reconnect loop, like `http::run`'s own
     // buffers -- reused across every reconnection attempt (not every
@@ -155,13 +155,13 @@ pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::Devi
 /// see `iobewi_http::client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
 /// and `Err` returns are both just "the caller should reconnect" -- the
 /// distinction is only for `run`'s log line, not control flow.
-async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend>(
+async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend, OB: iobewi_config_space::ConfigBackend>(
     transport: &T,
     diagnostics: &D,
     identity: &I,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<RB>,
-    ota_config: &'static crate::ota::OtaConfigSpace,
+    ota_config: &'static crate::ota::OtaConfigSpace<OB>,
     rx_buffer: &mut [u8],
     tx_buffer: &mut [u8],
     host: &str,
@@ -223,14 +223,14 @@ async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::
 /// Doesn't read the response -- that's the HTTP client's job, kept
 /// separate so a write failure and a read failure produce distinct log
 /// context upstream.
-async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend>(
+async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics, I: agent::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend, OB: iobewi_config_space::ConfigBackend>(
     session: &mut T::Connection<'h>,
     transport: &T,
     diagnostics: &D,
     identity: &I,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<RB>,
-    ota_config: &'static crate::ota::OtaConfigSpace,
+    ota_config: &'static crate::ota::OtaConfigSpace<OB>,
     host_str: &str,
     token: &str,
 ) -> Result<(), String> {
