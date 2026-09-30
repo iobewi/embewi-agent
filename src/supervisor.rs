@@ -106,7 +106,7 @@ static ESP_TOKEN_ENTROPY: EspTokenEntropy = EspTokenEntropy;
 static ESP_DEVICE_METADATA: EspDeviceMetadata = EspDeviceMetadata;
 
 struct AgentLogConfig<I: 'static> {
-    space: &'static crate::agent::AgentConfigSpace,
+    space: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     identity: &'static I,
 }
 
@@ -128,7 +128,7 @@ impl<I: crate::agent::DeviceIdentity> iobewi_log_stream::LogConfig for AgentLogC
 #[embassy_executor::task]
 async fn run_heartbeat(
     stack: Stack<'static>,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
@@ -143,7 +143,7 @@ async fn run_heartbeat(
 #[embassy_executor::task]
 async fn run_log_stream(
     stack: Stack<'static>,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
@@ -159,7 +159,7 @@ async fn run_log_stream(
 #[derive(Clone, Copy)]
 struct AgentTlsProvisioningBackend {
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
 }
 
 impl iobewi_tls::http::ProvisioningBackend for AgentTlsProvisioningBackend {
@@ -189,7 +189,7 @@ async fn run_http_api(
     stack: Stack<'static>,
     flash: &'static SharedFlash,
     nvs_backend: &'static NvsConfigBackend,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
@@ -231,7 +231,7 @@ async fn run_http_api(
 async fn run_http_provisioning(
     stack: Stack<'static>,
     flash: &'static SharedFlash,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
@@ -267,7 +267,7 @@ pub struct ApplicationSupervisor {
     spawner: Spawner,
     reboot: EspReboot,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
@@ -284,7 +284,7 @@ impl ApplicationSupervisor {
         spawner: Spawner,
         reboot: EspReboot,
         tls: iobewi_esp_tls::service::TlsReferenceStatic,
-        agent_config: &'static crate::agent::AgentConfigSpace,
+        agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
         app_config: &'static ConfigSpace<NvsConfigBackend>,
         tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
         runtime_config: &'static crate::runtime_config::RuntimeConfig,
@@ -364,7 +364,7 @@ pub struct ProvisioningSupervisor {
     reboot: EspReboot,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
     flash: &'static SharedFlash,
-    agent_config: &'static crate::agent::AgentConfigSpace,
+    agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace,
     tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
@@ -380,7 +380,7 @@ impl ProvisioningSupervisor {
         reboot: EspReboot,
         tls: iobewi_esp_tls::service::TlsReferenceStatic,
         flash: &'static SharedFlash,
-        agent_config: &'static crate::agent::AgentConfigSpace,
+        agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
         hardware_config: &'static crate::hardware::HardwareConfigSpace,
         tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
         lifecycle_config: &'static crate::ota::BootstrapConfigSpace,

@@ -14,9 +14,8 @@ use iobewi_http::HttpRouter;
 use iobewi_ota::http::RebootPort;
 
 use crate::agent;
-use iobewi_config_space::ConfigSpace;
+use iobewi_config_space::{ConfigBackend, ConfigSpace};
 use crate::ota;
-use iobewi_esp_config_space::NvsConfigBackend;
 // SharedFlash is still needed here only to construct `AgentOtaBackend`
 // below (the OTA backend that legitimately owns the flash handle); it is
 // no longer used for `/info`, which now goes through `BootInfoSource`.
@@ -40,12 +39,12 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
-pub async fn serve<L, R, TB, H, B, M, I>(
+pub async fn serve<L, R, TB, H, B, M, I, AB, APPB>(
     listener: &mut L,
     flash: &'static SharedFlash,
     storage: &'static H,
-    agent_config: &'static agent::AgentConfigSpace,
-    app_config: &'static ConfigSpace<NvsConfigBackend>,
+    agent_config: &'static agent::AgentConfigSpace<AB>,
+    app_config: &'static ConfigSpace<APPB>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig,
     ota_config: &'static crate::ota::OtaConfigSpace,
     reboot: R,
@@ -62,6 +61,8 @@ where
     B: agent::BootInfoSource,
     M: agent::DeviceMetadata,
     I: agent::DeviceIdentity,
+    AB: ConfigBackend + 'static,
+    APPB: ConfigBackend,
 {
     let api_routes = HttpRouter::new()
         .route(

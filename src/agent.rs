@@ -8,11 +8,9 @@ use alloc::string::String;
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use iobewi_config_space::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use serde::Serialize;
 use subtle::ConstantTimeEq;
-
-use iobewi_esp_config_space::NvsConfigBackend;
 
 /// Versions of the `/v1alpha1`-style protocol this agent answers, highest
 /// first (contrat §4, "Découverte de version d'API").
@@ -30,7 +28,7 @@ const MAX_TOKEN_LEN: usize = 64;
 /// The component owns the schema; IOBEWI ConfigSpace only owns isolation,
 /// capacity admission and complete-value replacement.
 pub const CONFIG_BUDGET: Budget = Budget::new(384);
-pub type AgentConfigSpace = ConfigSpace<NvsConfigBackend>;
+pub type AgentConfigSpace<B> = ConfigSpace<B>;
 
 #[derive(Clone, Default)]
 struct AgentConfig {
@@ -99,7 +97,7 @@ pub enum AgentConfigError {
     InvalidValue,
 }
 
-async fn load_config(space: &AgentConfigSpace) -> Result<AgentConfig, AgentConfigError> {
+async fn load_config<B: ConfigBackend>(space: &ConfigSpace<B>) -> Result<AgentConfig, AgentConfigError> {
     match space.load().await {
         Ok(Some(snapshot)) => AgentConfig::decode(&snapshot.data).ok_or(AgentConfigError::InvalidValue),
         Ok(None) => Ok(AgentConfig::default()),
@@ -117,7 +115,7 @@ pub trait DeviceIdentity {
 
 /// The device's `node_id` (contrat §1a): the ConfigSpace value if
 /// provisioned, else `identity`'s temporary device-unique ID.
-pub async fn node_id<I: DeviceIdentity>(space: &AgentConfigSpace, identity: &I) -> String {
+pub async fn node_id<B: ConfigBackend, I: DeviceIdentity>(space: &ConfigSpace<B>, identity: &I) -> String {
     if let Ok(config) = load_config(space).await
         && !config.node_id.is_empty()
     {
@@ -126,17 +124,17 @@ pub async fn node_id<I: DeviceIdentity>(space: &AgentConfigSpace, identity: &I) 
     identity.fallback_node_id()
 }
 
-pub async fn ctrl_url(space: &AgentConfigSpace) -> String {
+pub async fn ctrl_url<B: ConfigBackend>(space: &ConfigSpace<B>) -> String {
     load_config(space).await.map(|c| c.ctrl_url).unwrap_or_default()
 }
 
-pub async fn token(space: &AgentConfigSpace) -> String {
+pub async fn token<B: ConfigBackend>(space: &ConfigSpace<B>) -> String {
     load_config(space).await.map(|c| c.token).unwrap_or_default()
 }
 
 /// Runtime prerequisite established by embewi-init. The API must never be
 /// exposed without a durable Bearer token.
-pub async fn is_provisioned(space: &AgentConfigSpace) -> bool {
+pub async fn is_provisioned<B: ConfigBackend>(space: &ConfigSpace<B>) -> bool {
     load_config(space)
         .await
         .is_ok_and(|config| !config.token.is_empty())
@@ -173,8 +171,8 @@ fn generate_token<E: TokenEntropy>(entropy: &E) -> String {
 /// only ever generates on first provisioning. `entropy` is only actually
 /// read in that last case -- an existing or presented token never touches
 /// it.
-pub async fn save_identity<E: TokenEntropy>(
-    space: &AgentConfigSpace,
+pub async fn save_identity<B: ConfigBackend, E: TokenEntropy>(
+    space: &ConfigSpace<B>,
     node_id: &str,
     ctrl_url: &str,
     presented_token: &str,
@@ -200,7 +198,7 @@ pub use iobewi_http::auth::Bearer;
 /// constant time (contrat §1: "pas de fuite du token octet par octet").
 /// `false` -- refusing every inbound call -- when no token has been
 /// provisioned yet (contrat §1a).
-pub async fn is_authorized(space: &AgentConfigSpace, presented: &str) -> bool {
+pub async fn is_authorized<B: ConfigBackend>(space: &ConfigSpace<B>, presented: &str) -> bool {
     let token = token(space).await;
     if token.is_empty() {
         return false;
@@ -226,7 +224,7 @@ pub enum RotateTokenError {
 /// see [`is_authorized`]. An empty token is refused up front: rotation
 /// never doubles as a way to disable auth (§4: "on ne désactive pas l'auth
 /// par rotation").
-pub async fn rotate_token(space: &AgentConfigSpace, new_token: &str) -> Result<(), RotateTokenError> {
+pub async fn rotate_token<B: ConfigBackend>(space: &ConfigSpace<B>, new_token: &str) -> Result<(), RotateTokenError> {
     if !(8..=64).contains(&new_token.len()) {
         return Err(RotateTokenError::InvalidLength);
     }
@@ -239,12 +237,6 @@ pub async fn rotate_token(space: &AgentConfigSpace, new_token: &str) -> Result<(
     } else {
         Err(RotateTokenError::WriteFailed)
     }
-}
-
-/// The app service's TCP port (contrat §4, `POST /app/port`), owned by the
-/// dedicated application ConfigSpace.
-pub async fn app_port(space: &ConfigSpace<NvsConfigBackend>) -> u16 {
-    crate::app_config::port(space).await
 }
 
 /// Contrat §2's device state machine. Drives both `GET /info`/`GET /health`
@@ -376,12 +368,12 @@ pub struct Info {
     app_port: u16,
 }
 
-pub async fn info<B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
+pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
     boot: &B,
     metadata: &M,
     identity: &I,
-    agent_config: &AgentConfigSpace,
-    app_config: &ConfigSpace<NvsConfigBackend>,
+    agent_config: &ConfigSpace<AB>,
+    app_config: &ConfigSpace<APPB>,
     runtime_config: &crate::runtime_config::RuntimeConfig,
     ota_config: &crate::ota::OtaConfigSpace,
 ) -> Info {

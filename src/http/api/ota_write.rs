@@ -2,18 +2,24 @@
 //! authorization policy and the ESP OTA adapter.
 
 use crate::{agent, ota};
+use iobewi_config_space::ConfigBackend;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
 
-#[derive(Clone)]
-pub struct AgentOtaBackend {
+pub struct AgentOtaBackend<AB: 'static> {
     pub flash: &'static SharedFlash,
     pub ota_config: &'static ota::OtaConfigSpace,
-    pub agent_config: &'static agent::AgentConfigSpace,
+    pub agent_config: &'static agent::AgentConfigSpace<AB>,
 }
 
-impl ControlBackend for AgentOtaBackend {
+impl<AB: 'static> Clone for AgentOtaBackend<AB> {
+    fn clone(&self) -> Self {
+        Self { flash: self.flash, ota_config: self.ota_config, agent_config: self.agent_config }
+    }
+}
+
+impl<AB: ConfigBackend + 'static> ControlBackend for AgentOtaBackend<AB> {
     async fn prepare(&self, request: &PrepareRequest) -> PrepareResponse {
         ota::prepare(self.flash, self.ota_config, request).await
     }
@@ -27,7 +33,7 @@ impl ControlBackend for AgentOtaBackend {
     }
 }
 
-impl WriteBackend for AgentOtaBackend {
+impl<AB: ConfigBackend + 'static> WriteBackend for AgentOtaBackend<AB> {
     async fn authorize(&self, token: &str) -> bool {
         agent::is_authorized(self.agent_config, token).await
     }

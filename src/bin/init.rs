@@ -91,7 +91,7 @@ async fn main(spawner: Spawner) -> ! {
     let agent_config = config_manager
         .claim("agent", agent::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for agent config");
-    static AGENT_CONFIG: StaticCell<agent::AgentConfigSpace> = StaticCell::new();
+    static AGENT_CONFIG: StaticCell<agent::AgentConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let agent_config = &*AGENT_CONFIG.init(agent_config);
 
     let lifecycle_config = config_manager
