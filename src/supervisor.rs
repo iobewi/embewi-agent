@@ -282,6 +282,10 @@ impl crate::agent::DeviceMetadata for EspDeviceMetadata {
         let dram = esp_metadata_generated::memory_range!("DRAM");
         (dram.end - dram.start) as u32
     }
+
+    fn partition_layout(&self) -> &'static str {
+        iobewi_esp_ota::PARTITION_LAYOUT
+    }
 }
 
 /// One process-wide instance of each ZST platform capability -- there is no

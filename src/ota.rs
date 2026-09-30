@@ -67,13 +67,6 @@ pub async fn production<B: ConfigBackend>(
     iobewi_ota::bootstrap::production(&ConfigSpaceBootstrapStore(space)).await
 }
 
-/// Reported verbatim in `GET /v1alpha1/info`'s `partition_layout` field
-/// (contrat §4) -- `/ota/prepare`'s own compatibility check now reads this
-/// same constant directly from `iobewi_esp_ota` at the composition root
-/// (`supervisor.rs`); this re-export stays only because `agent::info()`
-/// still needs a value here, not because it's this facade's own data.
-pub use iobewi_esp_ota::PARTITION_LAYOUT;
-
 pub const CONFIG_BUDGET: Budget = Budget::new(OtaMetadata::MAX_BYTES);
 
 /// Metadata for the first production agent image preloaded by the factory

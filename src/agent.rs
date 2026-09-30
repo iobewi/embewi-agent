@@ -1,8 +1,10 @@
 //! Embewi contract v1alpha1 -- inbound API surface (Core -> ESP), §4.
 //!
-//! `Info::staged`/`active_slot`/`firmware.digest`/`state` are backed by
-//! `src/ota.rs` (contrat §3/§6) -- this module just assembles the JSON
-//! shapes, `ota.rs` owns the actual OTA state machine.
+//! `Info::staged`/`firmware.digest` are backed by `src/ota.rs`'s metadata
+//! facade (contrat §3/§6, `ota.rs` owns the actual OTA state machine);
+//! `active_slot`/`boot` go through `BootInfoSource` and `state` is this
+//! module's own `agent::State` -- this module just assembles the JSON
+//! shapes.
 
 use alloc::string::String;
 use core::fmt::Write as _;
@@ -341,14 +343,19 @@ pub trait BootInfoSource {
     async fn boot_info(&self) -> BootSnapshot;
 }
 
-/// Platform facts `GET /info` reports as-is (contrat §4's `chip`/
-/// `ram_size`), independent of how they're actually read. `ram_size` is the
-/// chip's total DRAM from its linker memory map -- a hardware constant, not
-/// free/configured heap (`heartbeat.rs`'s `heap_free` already covers that,
-/// a much smaller, firmware-configured subset of this).
+/// Platform/firmware facts `GET /info` reports as-is (contrat §4's `chip`/
+/// `ram_size`/`partition_layout`), independent of how they're actually
+/// read. `ram_size` is the chip's total DRAM from its linker memory map --
+/// a hardware constant, not free/configured heap (`heartbeat.rs`'s
+/// `heap_free` already covers that, a much smaller, firmware-configured
+/// subset of this). `partition_layout` is the OTA slot scheme name
+/// (contrat §4) -- reported here for the same reason `active_slot`/`boot`
+/// go through `BootInfoSource` instead of a direct `crate::ota` value:
+/// `agent.rs` shouldn't need to know it's backed by `iobewi_esp_ota`.
 pub trait DeviceMetadata {
     fn chip_name(&self) -> &'static str;
     fn ram_size(&self) -> u32;
+    fn partition_layout(&self) -> &'static str;
 }
 
 /// `GET /v1alpha1/info` response body (contrat §4).
@@ -385,7 +392,7 @@ pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, OB:
         api_versions: API_VERSIONS,
         chip: metadata.chip_name(),
         ram_size: metadata.ram_size(),
-        partition_layout: crate::ota::PARTITION_LAYOUT,
+        partition_layout: metadata.partition_layout(),
         active_slot: boot.active_slot().await,
         boot: {
             let boot = boot.boot_info().await;
