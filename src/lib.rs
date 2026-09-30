@@ -1,6 +1,8 @@
 #![no_std]
 extern crate alloc;
 
+mod composition;
+
 pub mod agent;
 pub mod app_config;
 pub mod hardware;
