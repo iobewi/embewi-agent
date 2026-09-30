@@ -11,6 +11,9 @@ use core::fmt::Write as _;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
+use iobewi_device::{DeviceIdentity, DeviceMetadata};
+use iobewi_entropy::EntropySource;
+use iobewi_ota::OtaPlatformMetadata;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 
@@ -107,14 +110,6 @@ async fn load_config<B: ConfigBackend>(space: &ConfigSpace<B>) -> Result<AgentCo
     }
 }
 
-/// A fallback identity for when no `node_id` has been persisted yet.
-/// Deliberately opaque to `agent.rs`: the fallback is some stable,
-/// device-unique string (a MAC-derived suffix on ESP), never how it was
-/// derived.
-pub trait DeviceIdentity {
-    fn fallback_node_id(&self) -> String;
-}
-
 /// The device's `node_id` (contrat §1a): the ConfigSpace value if
 /// provisioned, else `identity`'s temporary device-unique ID.
 pub async fn node_id<B: ConfigBackend, I: DeviceIdentity>(space: &ConfigSpace<B>, identity: &I) -> String {
@@ -123,7 +118,7 @@ pub async fn node_id<B: ConfigBackend, I: DeviceIdentity>(space: &ConfigSpace<B>
     {
         return config.node_id;
     }
-    identity.fallback_node_id()
+    alloc::format!("embewi-{}", identity.hardware_id())
 }
 
 pub async fn ctrl_url<B: ConfigBackend>(space: &ConfigSpace<B>) -> String {
@@ -142,18 +137,11 @@ pub async fn is_provisioned<B: ConfigBackend>(space: &ConfigSpace<B>) -> bool {
         .is_ok_and(|config| !config.token.is_empty())
 }
 
-/// A source of random bytes for token generation. Opaque to `agent.rs`:
-/// this crate doesn't know or care whether it's backed by a hardware RNG,
-/// only that the bytes it gets are suitable for a Bearer token.
-pub trait TokenEntropy {
-    fn fill_random(&self, output: &mut [u8]);
-}
-
 /// 128-bit random token, hex-encoded (contrat §1a: "token vide → généré
 /// aléatoirement par le device"). True randomness needs the RF subsystem up
 /// (Wi-Fi) -- always the case here, since this is only ever called from the
 /// HTTP config page, itself only reachable once on Wi-Fi.
-fn generate_token<E: TokenEntropy>(entropy: &E) -> String {
+fn generate_token<E: EntropySource>(entropy: &E) -> String {
     let mut bytes = [0u8; 16];
     entropy.fill_random(&mut bytes);
     let mut token = String::with_capacity(32);
@@ -173,7 +161,7 @@ fn generate_token<E: TokenEntropy>(entropy: &E) -> String {
 /// only ever generates on first provisioning. `entropy` is only actually
 /// read in that last case -- an existing or presented token never touches
 /// it.
-pub async fn save_identity<B: ConfigBackend, E: TokenEntropy>(
+pub async fn save_identity<B: ConfigBackend, E: EntropySource>(
     space: &ConfigSpace<B>,
     node_id: &str,
     ctrl_url: &str,
@@ -375,9 +363,10 @@ pub struct Info {
     app_port: u16,
 }
 
-pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, OB: ConfigBackend, B: BootInfoSource, M: DeviceMetadata, I: DeviceIdentity>(
+pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, OB: ConfigBackend, B: BootInfoSource, M: DeviceMetadata, OM: OtaPlatformMetadata, I: DeviceIdentity>(
     boot: &B,
     metadata: &M,
+    ota_metadata: &OM,
     identity: &I,
     agent_config: &ConfigSpace<AB>,
     app_config: &ConfigSpace<APPB>,
@@ -392,7 +381,7 @@ pub async fn info<AB: ConfigBackend, APPB: ConfigBackend, RB: ConfigBackend, OB:
         api_versions: API_VERSIONS,
         chip: metadata.chip_name(),
         ram_size: metadata.ram_size(),
-        partition_layout: metadata.partition_layout(),
+        partition_layout: ota_metadata.partition_layout(),
         active_slot: boot.active_slot().await,
         boot: {
             let boot = boot.boot_info().await;
