@@ -5,6 +5,7 @@ use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_device::{EspDeviceIdentity, EspDeviceMetadata};
 use iobewi_esp_entropy::EspEntropySource;
 use iobewi_esp_flash::SharedFlash;
+use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_indicator::EspStatusIndicator;
 use iobewi_esp_log_stream::EspLogTransport;
