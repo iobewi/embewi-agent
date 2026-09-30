@@ -34,11 +34,8 @@ use log::{info, warn};
 use crate::agent;
 use iobewi_ota::metadata::{Metadata as OtaMetadata, PendingCheckAction};
 pub use iobewi_ota::metadata::{MetadataError as OtaMetadataError, Stage, Staged};
-use iobewi_esp_ota::otadata;
-use iobewi_esp_ota::shared_flash as platform_ota;
 use iobewi_ota::config_space::{ConfigSpaceBootstrapStore, ConfigSpaceMetadataStore};
-
-use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_ota::service::boot::BootOps;
 
 pub use iobewi_ota::bootstrap::{BootstrapError, BootstrapState};
 pub const BOOTSTRAP_CONFIG_BUDGET: Budget =
@@ -69,11 +66,12 @@ pub async fn production<B: ConfigBackend>(
 ) -> Result<(), BootstrapError> {
     iobewi_ota::bootstrap::production(&ConfigSpaceBootstrapStore(space)).await
 }
-use iobewi_esp_flash::SharedFlash;
 
-/// Contrat §4: `POST /ota/prepare`'s `partition_layout` field must match
-/// this exactly, or the write is refused before a single byte transfers.
-/// Bump only if `partitions.csv`'s slot layout ever changes shape.
+/// Reported verbatim in `GET /v1alpha1/info`'s `partition_layout` field
+/// (contrat §4) -- `/ota/prepare`'s own compatibility check now reads this
+/// same constant directly from `iobewi_esp_ota` at the composition root
+/// (`supervisor.rs`); this re-export stays only because `agent::info()`
+/// still needs a value here, not because it's this facade's own data.
 pub use iobewi_esp_ota::PARTITION_LAYOUT;
 
 pub const CONFIG_BUDGET: Budget = Budget::new(OtaMetadata::MAX_BYTES);
@@ -92,14 +90,30 @@ pub struct PreloadedAgent {
 /// own rollback takes over on the next boot. Same value `firmware-c` uses
 /// (`EMBEWI_PENDING_DEADLINE_MS`).
 const SELFCHECK_DEADLINE: Duration = Duration::from_millis(iobewi_ota::metadata::PENDING_VERIFY_TIMEOUT_MS);
-/// How long the anti-freeze watchdog (see [`arm_boot_watchdog`]) gets before
-/// it force-resets the device. Longer than `SELFCHECK_DEADLINE` so the
-/// graceful, logged software timeout in `selfcheck_task` fires first in the
-/// ordinary case; this is the hardware backstop for when even that doesn't
-/// run -- a hang before the self-check's own `select` is ever reached, or
-/// one inside the embassy executor itself, neither of which a purely
-/// software deadline (which depends on that same executor) can catch.
-const WATCHDOG_DEADLINE_MS: u64 = 20_000;
+/// How long the anti-freeze watchdog gets before it force-resets the
+/// device. Longer than `SELFCHECK_DEADLINE` so the graceful, logged
+/// software timeout in `selfcheck_task` fires first in the ordinary case;
+/// this is the hardware backstop for when even that doesn't run -- a hang
+/// before the self-check's own `select` is ever reached, or one inside the
+/// embassy executor itself, neither of which a purely software deadline
+/// (which depends on that same executor) can catch. Arming the actual
+/// hardware watchdog is a platform mechanism the composition root owns
+/// (`iobewi_esp_ota::service::arm_watchdog_ms`); this constant is the
+/// Embewi policy of *how long*, not *how*.
+pub const BOOT_WATCHDOG_DEADLINE_MS: u64 = 20_000;
+
+/// A platform reset effect. `iobewi_ota::service::boot::BootOps`
+/// deliberately has no notion of reboot/reset (see its own docs); Embewi's
+/// boot policy needs exactly these two, so this crate owns the port and
+/// the ESP composition root supplies the implementation.
+#[allow(async_fn_in_trait)]
+pub trait BootReset {
+    /// A brief delay, then an unconditional reset -- gives the log line
+    /// that preceded the call a chance to actually flush first.
+    async fn reset_for_rollback(&self) -> !;
+    /// Immediate reset, no delay.
+    fn reset_now(&self) -> !;
+}
 
 
 async fn load_metadata<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Result<OtaMetadata, OtaMetadataError> {
@@ -136,35 +150,15 @@ pub async fn active_deployment_id<OB: ConfigBackend>(space: &OtaConfigSpace<OB>)
         .unwrap_or_default()
 }
 
-/// The partition actually booted, which can differ from the latest EWBT
-/// entry after a fallback from an image with an invalid app header.
-pub async fn active_slot(flash: &SharedFlash) -> String {
-    String::from(platform_ota::active_slot(flash).await)
-}
-
-pub type BootEntry = otadata::BootEntry;
-
-/// Raw bootloader state, independent of the agent's own status.
-pub async fn boot_info(flash: &SharedFlash) -> BootEntry {
-    platform_ota::boot_info(flash).await
-}
-
 /// Persists IOBEWI OTA's validation result after the image is confirmed.
 /// If a write fails the `activating` record is kept and the agent goes
 /// `Degraded`: the image is valid and stays so (never rolled back over
 /// bookkeeping), and the next boot -- bootloader `Valid`, same slot, still
 /// `activating` -- completes this promotion.
-// The watchdog must be armed only after TIMG0 has been initialized: the first
-// TimerGroup::new resets the peripheral block and would discard an earlier arm.
-
-pub fn arm_boot_watchdog() {
-    iobewi_esp_ota::service::arm_watchdog_ms(WATCHDOG_DEADLINE_MS);
-}
-
-pub async fn confirm_pending<OB: ConfigBackend>(
-    flash: &'static SharedFlash,
-    nvs_backend: &'static NvsConfigBackend,
-    ota_config: &'static OtaConfigSpace<OB>,
+pub async fn confirm_pending<OB: ConfigBackend, B: BootOps, R: BootReset>(
+    boot: &B,
+    reset: &R,
+    ota_config: &OtaConfigSpace<OB>,
 ) {
     // Fault injection remains a firmware-only validation hook. This loop
     // starves the executor so only the hardware watchdog can recover.
@@ -172,14 +166,13 @@ pub async fn confirm_pending<OB: ConfigBackend>(
         warn!("ota: [fault-injection-freeze] spinning forever, only the hardware watchdog can save this boot");
         loop { core::hint::spin_loop(); }
     }
-    let platform = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: nvs_backend };
-    match iobewi_ota::service::boot::pending_check(&platform, SELFCHECK_DEADLINE).await {
+    match iobewi_ota::service::boot::pending_check(boot, SELFCHECK_DEADLINE).await {
         PendingCheckAction::Confirm => {
             if cfg!(feature = "fault-injection") {
                 warn!("ota: [fault-injection] self-check passed, resetting BEFORE confirm to exercise rollback");
-                iobewi_esp_ota::service::reset_for_rollback().await;
+                reset.reset_for_rollback().await;
             }
-            match iobewi_ota::service::boot::confirm_pending(&ConfigSpaceMetadataStore(ota_config), &platform).await {
+            match iobewi_ota::service::boot::confirm_pending(&ConfigSpaceMetadataStore(ota_config), boot).await {
                 iobewi_ota::service::boot::Confirmation::Valid => {
                     agent::set_state(agent::State::Running);
                     info!("ota: validation done");
@@ -190,18 +183,18 @@ pub async fn confirm_pending<OB: ConfigBackend>(
                 }
                 iobewi_ota::service::boot::Confirmation::ResetRequired => {
                     warn!("ota: couldn't confirm the running image, rolling back");
-                    iobewi_esp_ota::service::reset_for_rollback().await;
+                    reset.reset_for_rollback().await;
                 }
             }
         }
         PendingCheckAction::Reject => {
-            iobewi_ota::service::boot::reject_pending(&platform).await;
+            iobewi_ota::service::boot::reject_pending(boot).await;
             warn!("ota: self-check failed, marking image invalid and rebooting for rollback");
-            iobewi_esp_ota::service::reset_for_rollback().await;
+            reset.reset_for_rollback().await;
         }
         PendingCheckAction::Reset => {
             warn!("ota: self-check deadline exceeded, forcing a reset (bootloader will roll back)");
-            iobewi_esp_ota::service::reset_now();
+            reset.reset_now();
         }
     }
 }
@@ -209,14 +202,13 @@ pub async fn confirm_pending<OB: ConfigBackend>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootDisposition { Stable, PendingVerify }
 
-pub async fn on_boot<OB: ConfigBackend>(
-    flash: &'static SharedFlash,
-    nvs_backend: &'static NvsConfigBackend,
-    ota_config: &'static OtaConfigSpace<OB>,
+pub async fn on_boot<OB: ConfigBackend, B: BootOps, R: BootReset>(
+    boot: &B,
+    reset: &R,
+    ota_config: &OtaConfigSpace<OB>,
 ) -> BootDisposition {
     use iobewi_ota::service::boot::BootStatus;
-    let platform = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: nvs_backend };
-    let result = iobewi_ota::service::boot::on_boot(&ConfigSpaceMetadataStore(ota_config), &platform).await;
+    let result = iobewi_ota::service::boot::on_boot(&ConfigSpaceMetadataStore(ota_config), boot).await;
     info!("ota: boot slot={:?} image={:?} -> {:?}", result.slot, result.image, result.action);
     match result.status {
         BootStatus::PendingVerify => {
@@ -227,7 +219,7 @@ pub async fn on_boot<OB: ConfigBackend>(
         BootStatus::Rollback => {
             agent::set_state(agent::State::Rollback);
             warn!("ota: PENDING_VERIFY image not accounted for by staged record, rolling back");
-            iobewi_esp_ota::service::reset_for_rollback().await;
+            reset.reset_for_rollback().await;
         }
         BootStatus::Degraded => {
             agent::set_state(agent::State::Degraded);
@@ -244,6 +236,7 @@ pub async fn on_boot<OB: ConfigBackend>(
     }
 }
 
-pub async fn reject_pending(flash: &'static SharedFlash) -> ! {
-    iobewi_esp_ota::service::reject_and_reset(flash).await
+pub async fn reject_pending<B: BootOps, R: BootReset>(boot: &B, reset: &R) -> ! {
+    iobewi_ota::service::boot::reject_pending(boot).await;
+    reset.reset_for_rollback().await
 }

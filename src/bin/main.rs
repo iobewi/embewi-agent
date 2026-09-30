@@ -31,6 +31,23 @@ use embewi_agent_esp::runtime_config;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
+/// ESP implementation of `ota::BootReset`, this binary's own composition
+/// boundary: boot-time reset is only ever needed here, before any runtime
+/// service (`supervisor.rs`) exists, so there's no reason for it to live
+/// alongside the other platform capabilities constructed there.
+#[derive(Clone, Copy)]
+struct EspBootReset;
+
+impl embewi_agent_esp::ota::BootReset for EspBootReset {
+    async fn reset_for_rollback(&self) -> ! {
+        iobewi_esp_ota::service::reset_for_rollback().await
+    }
+
+    fn reset_now(&self) -> ! {
+        iobewi_esp_ota::service::reset_now()
+    }
+}
+
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // First thing, before anything else touches the stack any deeper than
@@ -81,9 +98,10 @@ async fn main(spawner: Spawner) -> ! {
     // peripheral -- arming the watchdog any earlier than this would just
     // have that reset wipe it straight back out). From here on, re-armed:
     // a freeze anywhere through `ota::on_boot`'s decision still resets the
-    // device instead of bricking it on a `pending_verify` image; see
-    // `ota.rs`'s "anti-freeze watchdog" section for the rest of it.
-    embewi_agent_esp::ota::arm_boot_watchdog();
+    // device instead of bricking it on a `pending_verify` image. Arming
+    // itself is a platform mechanism; `BOOT_WATCHDOG_DEADLINE_MS` (how
+    // long) is Embewi policy -- see `ota.rs`.
+    iobewi_esp_ota::service::arm_watchdog_ms(embewi_agent_esp::ota::BOOT_WATCHDOG_DEADLINE_MS);
 
     // The physical flash has one process-wide owner. ConfigSpace/NVS and
     // IOBEWI OTA share only this serialized hardware capability.
@@ -100,6 +118,12 @@ async fn main(spawner: Spawner) -> ! {
             .expect("NVS config backend unavailable"),
     );
     let mut config_manager = ConfigManager::new(*config_backend);
+
+    // Constructed once, reused for every boot-time OTA decision below --
+    // `on_boot`/`confirm_pending`/`reject_pending` only ever run here,
+    // before any runtime service exists.
+    let boot_runtime = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: config_backend };
+    let boot_reset = EspBootReset;
 
     let hardware_config = config_manager
         .claim("hardware", hardware::CONFIG_BUDGET)
@@ -186,8 +210,8 @@ async fn main(spawner: Spawner) -> ! {
     // IOBEWI OTA only reports the boot disposition here. Application policy
     // below decides whether this image is fit to be confirmed.
     let boot = embewi_agent_esp::ota::on_boot(
-        flash,
-        config_backend,
+        &boot_runtime,
+        &boot_reset,
         ota_config,
     )
     .await;
@@ -208,7 +232,7 @@ async fn main(spawner: Spawner) -> ! {
     if !prerequisites_ok {
         agent::set_state(agent::State::Failed);
         if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
-            embewi_agent_esp::ota::reject_pending(flash).await;
+            embewi_agent_esp::ota::reject_pending(&boot_runtime, &boot_reset).await;
         }
         panic!("embewi-agent prerequisites are missing or invalid");
     }
@@ -217,8 +241,8 @@ async fn main(spawner: Spawner) -> ! {
         embewi_agent_esp::ota::BootstrapState::ReadyForAgent => {
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
                 embewi_agent_esp::ota::confirm_pending(
-                    flash,
-                    config_backend,
+                    &boot_runtime,
+                    &boot_reset,
                     ota_config,
                 )
                 .await;
@@ -233,8 +257,8 @@ async fn main(spawner: Spawner) -> ! {
         embewi_agent_esp::ota::BootstrapState::Production => {
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
                 embewi_agent_esp::ota::confirm_pending(
-                    flash,
-                    config_backend,
+                    &boot_runtime,
+                    &boot_reset,
                     ota_config,
                 )
                 .await;
@@ -244,7 +268,7 @@ async fn main(spawner: Spawner) -> ! {
         | embewi_agent_esp::ota::BootstrapState::Provisioning => {
             agent::set_state(agent::State::Failed);
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
-                embewi_agent_esp::ota::reject_pending(flash).await;
+                embewi_agent_esp::ota::reject_pending(&boot_runtime, &boot_reset).await;
             }
             panic!("embewi-agent must not bootstrap an unprovisioned device");
         }

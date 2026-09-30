@@ -41,11 +41,11 @@ struct AgentBootInfo {
 
 impl crate::agent::BootInfoSource for AgentBootInfo {
     async fn active_slot(&self) -> alloc::string::String {
-        crate::ota::active_slot(self.flash).await
+        alloc::string::String::from(iobewi_esp_ota::shared_flash::active_slot(self.flash).await)
     }
 
     async fn boot_info(&self) -> crate::agent::BootSnapshot {
-        let boot = crate::ota::boot_info(self.flash).await;
+        let boot = iobewi_esp_ota::shared_flash::boot_info(self.flash).await;
         crate::agent::BootSnapshot { slot: boot.slot, seq: boot.seq, state: boot.state }
     }
 }
