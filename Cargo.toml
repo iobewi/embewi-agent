@@ -38,13 +38,13 @@ fault-injection-freeze = []
 # same rev's bootstrap module itself, so keeping the main engine on an
 # older rev would just reintroduce the exact cross-version trait mismatch
 # this single dependency avoids.
-iobewi-ota = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df", features = ["http", "runtime", "config-space"] }
-iobewi-http = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
+iobewi-ota = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c", features = ["http", "runtime", "config-space"] }
+iobewi-http = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
 # Portable "TLS before HTTP dispatch" capability consumed by http/mod.rs's
 # serve() helper; part of the same connected component as iobewi-http above.
-iobewi-https = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
-iobewi-tls = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df", features = ["http"] }
-iobewi-wifi = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
+iobewi-https = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
+iobewi-tls = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c", features = ["http"] }
+iobewi-wifi = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
 iobewi-log-stream = { git = "https://github.com/iobewi/iobewi", rev = "d959db9b4ca581af44c7a380c919227d865b2d49" }
 iobewi-ntp = { git = "https://github.com/iobewi/iobewi", rev = "ee21b27fd62617a20ad2e69866dcf3342c3325b4" }
 # Portable client-side secure transport capability (DNS/TCP/TLS opaque to
@@ -55,14 +55,14 @@ iobewi-transport = { git = "https://github.com/iobewi/iobewi", rev = "d959db9b4c
 # Portable device-status capability (semantic state only, no LED/colour).
 # TEMPORARY: pinned to iobewi's feat/status-indicator branch while that
 # chantier is in flight; bump to a main commit once it merges.
-iobewi-indicator = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
+iobewi-indicator = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
 # Portable runtime diagnostics capability (stack headroom, etc.). TEMPORARY:
 # pinned to iobewi's feat/runtime-diagnostics branch while that chantier is
 # in flight; bump to a main commit once it merges.
 iobewi-runtime = { git = "https://github.com/iobewi/iobewi", rev = "2c0b02a6e797e046db994c4eb0bbf3bba649db83" }
 # Portable platform capabilities consumed by Embewi business logic.
-iobewi-device = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
-iobewi-entropy = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
+iobewi-device = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
+iobewi-entropy = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
 # Transport-agnostic Improv Serial codec/parser extracted from this firmware.
 # Pinned by commit while its API is still pre-stable.
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c4" }
@@ -71,20 +71,20 @@ improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c
 # dependencies inside iobewi-esp (https->http->..., ->tls->config-space->
 # flash, ota->config-space->flash), so every consumer must resolve the same
 # rev or Cargo instantiates two structurally-identical-but-incompatible copies.
-iobewi-esp-flash = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", package = "iobewi-esp-flash", features = ["esp32s3"] }
-iobewi-esp-ota = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", package = "iobewi-esp-ota", features = ["esp32s3", "shared-flash"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", package = "iobewi-esp-flash", features = ["esp32s3"] }
+iobewi-esp-ota = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", package = "iobewi-esp-ota", features = ["esp32s3", "shared-flash"] }
 # ESP radio implementation for the portable IOBEWI Wi-Fi service.
-iobewi-esp-wifi = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", package = "iobewi-esp-wifi", features = ["esp32s3"] }
-iobewi-esp-log-stream = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", package = "iobewi-esp-wifi", features = ["esp32s3"] }
+iobewi-esp-log-stream = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
 # ESP RMT/WS2812 renderer for the portable status-indicator capability.
-iobewi-esp-indicator = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
+iobewi-esp-indicator = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
 # Stack high-water-mark measurement for the portable runtime diagnostics capability.
 iobewi-esp-runtime = { git = "https://github.com/iobewi/iobewi-esp", rev = "294a8934240bff07aca5a01cdd43391fe68fa594", features = ["esp32s3"] }
 # ESP implementations of portable IOBEWI platform capabilities.
-iobewi-esp-device = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
-iobewi-esp-entropy = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
+iobewi-esp-device = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
+iobewi-esp-entropy = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
 # RTC-watchdog one-shot reboot adapter for the portable OTA RebootPort capability.
-iobewi-esp-reboot = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
+iobewi-esp-reboot = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
 
 esp-hal = { version = "~1.1.0", features = ["esp32s3", "log-04", "unstable"] }
 
@@ -146,14 +146,14 @@ subtle       = { version = "2", default-features = false }
 # Races the self-check against contrat §3's bounded deadline.
 embassy-futures = "0.1"
 # Generic isolated configuration spaces and their ESP/NVS backend.
-iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "c47100e36b429dcfca1c735749f6079a3b2463df" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", package = "iobewi-esp-config-space", features = ["esp32s3"] }
+iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "2f2d70a69968ef0b442932ac0c00b983ccce6a7c" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", package = "iobewi-esp-config-space", features = ["esp32s3"] }
 # ESP crypto and networking for the IOBEWI TLS identity service.
-iobewi-esp-tls = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", package = "iobewi-esp-tls", features = ["esp32s3", "picoserve", "service"] }
+iobewi-esp-tls = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", package = "iobewi-esp-tls", features = ["esp32s3", "picoserve", "service"] }
 # TEMPORARY: pinned to iobewi-esp's feat/tls-listener-port branch while
 # EspTlsListener::new() is being exposed for portable composition; bump to
 # main once it merges.
-iobewi-esp-https = { git = "https://github.com/iobewi/iobewi-esp", rev = "d51f039a8c9f6a346133f71db04d43915cb34031", features = ["esp32s3"] }
+iobewi-esp-https = { git = "https://github.com/iobewi/iobewi-esp", rev = "4cb59bdfb50259218369ed5cea3ed8a2a72b084e", features = ["esp32s3"] }
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

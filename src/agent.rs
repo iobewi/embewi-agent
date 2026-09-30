@@ -331,16 +331,11 @@ pub trait BootInfoSource {
     async fn boot_info(&self) -> BootSnapshot;
 }
 
-/// Platform/firmware facts `GET /info` reports as-is (contrat §4's `chip`/
-/// `ram_size`/`partition_layout`), independent of how they're actually
-/// read. `ram_size` is the chip's total DRAM from its linker memory map --
-/// a hardware constant, not free/configured heap (`heartbeat.rs`'s
-/// `heap_free` already covers that, a much smaller, firmware-configured
-/// subset of this). `partition_layout` is the OTA slot scheme name
-/// (contrat §4) -- reported here for the same reason `active_slot`/`boot`
-/// go through `BootInfoSource` instead of a direct `crate::ota` value:
-/// `agent.rs` shouldn't need to know it's backed by `iobewi_esp_ota`.
-/// `GET /v1alpha1/info` response body (contrat §4).
+/// `GET /v1alpha1/info` response body (contrat §4). `chip`/`ram_size` come
+/// from `iobewi_device::DeviceMetadata`, `partition_layout` from
+/// `iobewi_ota::OtaPlatformMetadata` -- both platform/firmware facts
+/// supplied by the composition root, so this module never needs to know
+/// they're backed by `iobewi_esp_device`/`iobewi_esp_ota`.
 #[derive(Serialize)]
 pub struct Info {
     node_id: String,
