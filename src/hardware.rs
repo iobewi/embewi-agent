@@ -2,20 +2,18 @@
 //!
 //! The component owns the schema inside its ConfigSpace.
 
-use iobewi_config_space::{Budget, ConfigSpace};
+use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use log::warn;
-
-use iobewi_esp_config_space::NvsConfigBackend;
 
 const MAGIC: &[u8; 4] = b"HWC1";
 const NONE: u8 = 0xff;
 
 pub const CONFIG_BUDGET: Budget = Budget::new(8);
-pub type HardwareConfigSpace = ConfigSpace<NvsConfigBackend>;
+pub type HardwareConfigSpace<B> = ConfigSpace<B>;
 
 /// Whether the hardware object exists and has the current schema. A saved
 /// "LED disabled" value is still a fully provisioned hardware configuration.
-pub async fn is_configured(space: &HardwareConfigSpace) -> bool {
+pub async fn is_configured<B: ConfigBackend>(space: &HardwareConfigSpace<B>) -> bool {
     let Ok(Some(snapshot)) = space.load().await else {
         return false;
     };
@@ -23,7 +21,7 @@ pub async fn is_configured(space: &HardwareConfigSpace) -> bool {
     raw.len() == 5 && &raw[..4] == MAGIC
 }
 
-pub async fn led_gpio(space: &HardwareConfigSpace) -> Option<u8> {
+pub async fn led_gpio<B: ConfigBackend>(space: &HardwareConfigSpace<B>) -> Option<u8> {
     let Ok(Some(snapshot)) = space.load().await else {
         return None;
     };
@@ -35,8 +33,8 @@ pub async fn led_gpio(space: &HardwareConfigSpace) -> Option<u8> {
     (raw[4] != NONE).then_some(raw[4])
 }
 
-pub async fn save_led_gpio(
-    space: &HardwareConfigSpace,
+pub async fn save_led_gpio<B: ConfigBackend>(
+    space: &HardwareConfigSpace<B>,
     gpio: Option<u8>,
 ) -> Result<(), ()> {
     let mut encoded = [0u8; 5];

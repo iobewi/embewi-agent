@@ -85,7 +85,7 @@ async fn main(spawner: Spawner) -> ! {
     let hardware_config = config_manager
         .claim("hardware", hardware::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for hardware config");
-    static HARDWARE_CONFIG: StaticCell<hardware::HardwareConfigSpace> = StaticCell::new();
+    static HARDWARE_CONFIG: StaticCell<hardware::HardwareConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let hardware_config = &*HARDWARE_CONFIG.init(hardware_config);
 
     let agent_config = config_manager

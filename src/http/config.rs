@@ -73,11 +73,11 @@ fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&st
 /// doc comment) rather than spawned as an independent task, so its
 /// `Future`'s storage shares space with [`super::api::serve`]'s instead of
 /// both being reserved simultaneously and permanently.
-pub async fn serve<L, R, I, E, AB>(
+pub async fn serve<L, R, I, E, AB, HB>(
     listener: &mut L,
     flash: &'static SharedFlash,
     agent_config: &'static agent::AgentConfigSpace<AB>,
-    hardware_config: &'static crate::hardware::HardwareConfigSpace,
+    hardware_config: &'static crate::hardware::HardwareConfigSpace<HB>,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace,
     ota_config: &'static crate::ota::OtaConfigSpace,
     factory_agent: crate::ota::PreloadedAgent,
@@ -91,6 +91,7 @@ where
     I: agent::DeviceIdentity,
     E: agent::TokenEntropy,
     AB: iobewi_config_space::ConfigBackend,
+    HB: iobewi_config_space::ConfigBackend,
 {
     let router = HttpRouter::new()
         .route("/style.css", get_service(File::css(STYLE_CSS)))
