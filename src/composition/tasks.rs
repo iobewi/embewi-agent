@@ -1,6 +1,6 @@
 use embassy_net::Stack;
 use iobewi_config_space::ConfigSpace;
-use iobewi_device::{DeviceIdentity, DeviceMetadata};
+use iobewi_device::DeviceIdentity;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_device::{EspDeviceIdentity, EspDeviceMetadata};
 use iobewi_esp_entropy::EspEntropySource;
@@ -12,7 +12,6 @@ use iobewi_esp_log_stream::EspLogTransport;
 use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
-use iobewi_indicator::StatusIndicatorCapabilities;
 use static_cell::StaticCell;
 
 use super::ota::{AgentBootInfo, AgentOtaBackend, EspFactoryOta};
@@ -160,7 +159,7 @@ pub(crate) async fn run_http_provisioning(
         reboot,
         &ESP_DEVICE_IDENTITY,
         &ESP_ENTROPY,
-        ESP_STATUS_INDICATOR.configurable_pins(),
+        &ESP_STATUS_INDICATOR,
     ).await
 }
 
