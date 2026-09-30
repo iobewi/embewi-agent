@@ -131,11 +131,11 @@ async fn run_heartbeat(
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
     diagnostics: EspRuntimeDiagnostics,
 ) -> ! {
-    static TRANSPORT: StaticCell<EspClientTransport> = StaticCell::new();
+    static TRANSPORT: StaticCell<EspClientTransport<NvsConfigBackend>> = StaticCell::new();
     let transport = &*TRANSPORT.init(EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set });
     crate::heartbeat::run(transport, diagnostics, &ESP_DEVICE_IDENTITY, agent_config, runtime_config, ota_config).await
 }
@@ -144,7 +144,7 @@ async fn run_heartbeat(
 async fn run_log_stream(
     stack: Stack<'static>,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
     let config = AgentLogConfig { space: agent_config, identity: &ESP_DEVICE_IDENTITY };
@@ -158,7 +158,7 @@ async fn run_log_stream(
 /// layer never sees `iobewi_esp_tls` or `TlsConfigSpace` itself.
 #[derive(Clone, Copy)]
 struct AgentTlsProvisioningBackend {
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
 }
 
@@ -191,7 +191,7 @@ async fn run_http_api(
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     reboot: EspReboot,
@@ -233,7 +233,7 @@ async fn run_http_provisioning(
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     factory_agent: crate::ota::PreloadedAgent,
@@ -269,7 +269,7 @@ pub struct ApplicationSupervisor {
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     flash: &'static SharedFlash,
@@ -286,7 +286,7 @@ impl ApplicationSupervisor {
         tls: iobewi_esp_tls::service::TlsReferenceStatic,
         agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
         app_config: &'static ConfigSpace<NvsConfigBackend>,
-        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
         runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
         ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
         flash: &'static SharedFlash,
@@ -366,7 +366,7 @@ pub struct ProvisioningSupervisor {
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     factory_agent: crate::ota::PreloadedAgent,
@@ -382,7 +382,7 @@ impl ProvisioningSupervisor {
         flash: &'static SharedFlash,
         agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
         hardware_config: &'static crate::hardware::HardwareConfigSpace<NvsConfigBackend>,
-        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace,
+        tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
         lifecycle_config: &'static crate::ota::BootstrapConfigSpace<NvsConfigBackend>,
         ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
         factory_agent: crate::ota::PreloadedAgent,

@@ -145,7 +145,7 @@ async fn main(spawner: Spawner) -> ! {
     let tls_config = config_manager
         .claim("tls", tls::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for TLS config");
-    static TLS_CONFIG: StaticCell<tls::TlsConfigSpace> = StaticCell::new();
+    static TLS_CONFIG: StaticCell<tls::TlsConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let tls_config = &*TLS_CONFIG.init(tls_config);
 
     let wifi_config = config_manager
