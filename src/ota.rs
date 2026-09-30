@@ -44,7 +44,7 @@ use iobewi_esp_config_space::NvsConfigBackend;
 pub use iobewi_ota::bootstrap::{BootstrapError, BootstrapState};
 pub const BOOTSTRAP_CONFIG_BUDGET: Budget =
     Budget::new(iobewi_ota::bootstrap::MAX_BYTES);
-pub type BootstrapConfigSpace = ConfigSpace<NvsConfigBackend>;
+pub type BootstrapConfigSpace<B> = ConfigSpace<B>;
 
 struct BootstrapConfigStore<'a, B: ConfigBackend>(&'a ConfigSpace<B>);
 

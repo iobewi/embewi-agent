@@ -122,7 +122,7 @@ async fn main(spawner: Spawner) -> ! {
     let lifecycle_config = config_manager
         .claim("lifecycle", embewi_agent_esp::ota::BOOTSTRAP_CONFIG_BUDGET)
         .expect("NVS capacity insufficient for lifecycle state");
-    static LIFECYCLE_CONFIG: StaticCell<embewi_agent_esp::ota::BootstrapConfigSpace> =
+    static LIFECYCLE_CONFIG: StaticCell<embewi_agent_esp::ota::BootstrapConfigSpace<NvsConfigBackend>> =
         StaticCell::new();
     let lifecycle_config = &*LIFECYCLE_CONFIG.init(lifecycle_config);
 

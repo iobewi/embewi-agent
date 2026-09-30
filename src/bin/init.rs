@@ -97,7 +97,7 @@ async fn main(spawner: Spawner) -> ! {
     let lifecycle_config = config_manager
         .claim("lifecycle", ota::BOOTSTRAP_CONFIG_BUDGET)
         .expect("NVS capacity insufficient for lifecycle state");
-    static LIFECYCLE_CONFIG: StaticCell<ota::BootstrapConfigSpace> = StaticCell::new();
+    static LIFECYCLE_CONFIG: StaticCell<ota::BootstrapConfigSpace<NvsConfigBackend>> = StaticCell::new();
     let lifecycle_config = &*LIFECYCLE_CONFIG.init(lifecycle_config);
 
     let ota_config = config_manager
