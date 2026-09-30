@@ -4,9 +4,13 @@
 //! IOBEWI OTA owns the transaction state machine and the OTA metadata schema.
 //! `iobewi-esp-ota-boot` owns the EWBT boot state machine and ESP image
 //! validation. `iobewi-esp-ota` locates ESP partitions, executes EWBT flash
-//! writes with readback and provides the NOR-flash artifact backend. Here the
-//! application binds ConfigSpace,
-//! the HTTP transport, watchdog policy and self-check gate.
+//! writes with readback and provides the NOR-flash artifact backend. This
+//! module is the remaining application-facing facade over that state: the
+//! bootstrap lifecycle, read-only OTA metadata, and the boot-time self-check
+//! gate. The `/ota/prepare`, `/ota/write` and `/ota/activate` HTTP surface
+//! composes `iobewi_ota::service`/`iobewi_esp_ota` directly in
+//! `supervisor.rs` (`AgentOtaBackend`/`EspFactoryOta`) instead of going
+//! through a wrapper here.
 //!
 //! Mirrors `firmware-c`'s `embewi_ota.c`/`embewi_selfcheck.c` state machine
 //! (same `stage`/`slot`/`digest`/`deployment_id`/`size` staged-NVS layout),
@@ -26,17 +30,12 @@ use alloc::string::String;
 use embassy_time::Duration;
 use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use log::{info, warn};
-pub use iobewi_ota::http::{PrepareRequest, PrepareResponse};
 
 use crate::agent;
-use iobewi_ota::metadata::{
-    Metadata as OtaMetadata,
-    format_digest, parse_digest, PendingCheckAction,
-};
-pub use iobewi_ota::metadata::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
+use iobewi_ota::metadata::{Metadata as OtaMetadata, PendingCheckAction};
+pub use iobewi_ota::metadata::{MetadataError as OtaMetadataError, Stage, Staged};
 use iobewi_esp_ota::otadata;
 use iobewi_esp_ota::shared_flash as platform_ota;
-use iobewi_esp_ota::service::EspBoot;
 use iobewi_ota::config_space::{ConfigSpaceBootstrapStore, ConfigSpaceMetadataStore};
 
 use iobewi_esp_config_space::NvsConfigBackend;
@@ -87,17 +86,6 @@ pub struct PreloadedAgent {
     pub digest: &'static str,
     pub deployment_id: &'static str,
 }
-
-#[derive(Debug)]
-pub enum PreloadedAgentError {
-    BadDigest,
-    NoTarget,
-    TooLarge,
-    Flash,
-    DigestMismatch,
-    Metadata(OtaMetadataError),
-}
-
 
 /// Contrat §3: how long a `pending_verify` self-check gets before this
 /// device forces its own reset -- unconfirmed past this, the bootloader's
@@ -159,160 +147,6 @@ pub type BootEntry = otadata::BootEntry;
 /// Raw bootloader state, independent of the agent's own status.
 pub async fn boot_info(flash: &SharedFlash) -> BootEntry {
     platform_ota::boot_info(flash).await
-}
-
-/// Verifies the already-programmed inactive slot and publishes it as a
-/// normal IOBEWI OTA staged transaction. No alternate OTA/write path exists:
-/// factory flashing merely placed the bytes there ahead of time.
-pub async fn stage_preloaded_agent<OB: ConfigBackend>(
-    flash: &SharedFlash,
-    ota_config: &OtaConfigSpace<OB>,
-    image: PreloadedAgent,
-) -> Result<&'static str, PreloadedAgentError> {
-    let expected = parse_digest(image.digest).ok_or(PreloadedAgentError::BadDigest)?;
-
-    let (slot, computed) = platform_ota::hash_preloaded(flash, image.size).await.map_err(|e| match e {
-        platform_ota::PreloadedError::NoTarget => PreloadedAgentError::NoTarget,
-        platform_ota::PreloadedError::TooLarge => PreloadedAgentError::TooLarge,
-        platform_ota::PreloadedError::Flash => PreloadedAgentError::Flash,
-    })?;
-
-    if computed != expected {
-        return Err(PreloadedAgentError::DigestMismatch);
-    }
-
-    iobewi_ota::service::publish(
-        &ConfigSpaceMetadataStore(ota_config), String::from(image.deployment_id),
-        iobewi_ota::Committed { size: u64::from(image.size), digest: expected },
-        String::from(slot.as_str()),
-    )
-        .await
-        .map_err(PreloadedAgentError::Metadata)?;
-
-    Ok(slot.as_str())
-}
-
-/// Validates compat *before* a single byte transfers (contrat §3: "un
-/// binaire esp32-s3 flashé sur esp32 ne boote pas").
-pub async fn prepare<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, req: &PrepareRequest) -> PrepareResponse {
-    match iobewi_ota::service::prepare(
-        &ConfigSpaceMetadataStore(ota_config), &EspBoot(flash), &req.chip, &req.partition_layout,
-        esp_metadata_generated::chip_pretty!(), PARTITION_LAYOUT, u64::from(req.size),
-    ).await {
-        Ok(target) => PrepareResponse::accept(target),
-        Err(reason) => PrepareResponse::refuse(reason),
-    }
-}
-
-/// IOBEWI OTA owns the session and the publish-on-verified-finish rule.
-/// The ESP adapter supplies only the writer that programs the inactive slot.
-static UPLOAD: iobewi_ota::service::upload::UploadManager<iobewi_esp_ota::service::EspUploadWriter> =
-    iobewi_ota::service::upload::UploadManager::new();
-
-pub async fn write_in_progress() -> bool { UPLOAD.in_progress().await }
-pub async fn write_written() -> u32 { UPLOAD.written().await }
-pub async fn write_received() -> u32 { UPLOAD.received().await }
-pub async fn write_params_match(params: &SessionParams) -> bool { UPLOAD.params_match(params).await }
-
-pub use iobewi_ota::ResumePlan as Plan;
-
-pub fn write_plan(has_range: bool, start: u32, in_progress: bool, written: u32) -> Plan {
-    iobewi_ota::resume_plan(has_range, u64::from(start), in_progress, u64::from(written))
-}
-
-pub fn write_is_final(has_range: bool, end: u32, total: u32) -> bool {
-    iobewi_ota::is_complete(has_range, u64::from(end), u64::from(total))
-}
-
-pub enum BeginError {
-    Busy,
-    TooLarge,
-    Conflict,
-    Storage(OtaMetadataError),
-}
-
-pub async fn write_begin<OB: ConfigBackend>(
-    flash: &'static SharedFlash,
-    ota_config: &OtaConfigSpace<OB>,
-    params: SessionParams,
-) -> Result<(), BeginError> {
-    // Target selection releases the physical flash lock before the portable
-    // service touches ConfigSpace: both capabilities share that same lock.
-    let target = platform_ota::write_target(flash).await.map_err(|_| BeginError::Busy)?;
-    UPLOAD.begin(
-        &ConfigSpaceMetadataStore(ota_config), params, target.size as u64,
-        iobewi_esp_ota::service::EspUploadWriter::new(flash, target),
-    ).await.map_err(|error| match error {
-        iobewi_ota::service::upload::StartError::TooLarge => BeginError::TooLarge,
-        iobewi_ota::service::upload::StartError::Busy => BeginError::Busy,
-        iobewi_ota::service::upload::StartError::Conflict => BeginError::Conflict,
-        iobewi_ota::service::upload::StartError::Storage(error) => BeginError::Storage(error),
-    })
-}
-
-pub async fn write_chunk(data: &[u8]) -> bool { UPLOAD.chunk(data).await }
-
-pub struct WriteFinishOk {
-    pub written: u32,
-    pub digest: String,
-}
-
-pub enum WriteFinishError {
-    NotWriting,
-    DigestMismatch,
-    Incomplete,
-    Storage(OtaMetadataError),
-}
-
-pub async fn write_finish<OB: ConfigBackend>(ota_config: &OtaConfigSpace<OB>) -> Result<WriteFinishOk, WriteFinishError> {
-    let result = UPLOAD.finish(&ConfigSpaceMetadataStore(ota_config)).await.map_err(|error| match error {
-        iobewi_ota::service::upload::FinishError::NotWriting => WriteFinishError::NotWriting,
-        iobewi_ota::service::upload::FinishError::DigestMismatch(computed) => {
-            warn!("ota: digest mismatch, calculated={}", format_digest(&computed));
-            WriteFinishError::DigestMismatch
-        }
-        iobewi_ota::service::upload::FinishError::Incomplete { durable } => {
-            warn!("ota: incomplete session at {durable} bytes");
-            WriteFinishError::Incomplete
-        }
-        iobewi_ota::service::upload::FinishError::Backend => WriteFinishError::Incomplete,
-        iobewi_ota::service::upload::FinishError::Storage(error) => WriteFinishError::Storage(error),
-    })?;
-    info!(
-        "ota: write OK {} octets ({} secteurs programmés, {} blocs erase de {} KiB) en {}ms slot={} -> staged=written",
-        result.written, result.stats.sectors_flushed, result.stats.erase_batches,
-        result.stats.erase_batch_kib, result.elapsed_ms, result.slot,
-    );
-    Ok(WriteFinishOk { written: result.written, digest: result.digest })
-}
-
-/// `POST /v1alpha1/ota/activate` (contrat §4): points the bootloader at the
-/// staged slot and arms `OtaImageState::New` (which it promotes to
-/// `PendingVerify` on the next boot). Reads the target slot from the persisted
-/// ConfigSpace `staged` state, not the in-RAM write session -- matches `firmware-c`'s
-/// own fallback ("Reprise après reboot de l'agent entre write et
-/// activate"), and works identically whether or not this device rebooted
-/// since `/ota/write` finished.
-pub async fn activate<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, deployment_id: &str) -> Result<String, ActivateError> {
-    let slot = iobewi_ota::service::activate_staged(
-        &ConfigSpaceMetadataStore(ota_config), &EspBoot(flash), deployment_id,
-    ).await.map_err(|error| match error {
-        iobewi_ota::service::ActivateError::NotStaged => ActivateError::NotStaged,
-        iobewi_ota::service::ActivateError::DeploymentMismatch => ActivateError::DeploymentMismatch,
-        iobewi_ota::service::ActivateError::Storage(error) => ActivateError::Storage(error),
-    })?;
-    info!("ota: activate dep={deployment_id} -> slot={slot} prêt, reboot imminent");
-    Ok(slot)
-}
-
-pub enum ActivateError {
-    /// Nothing staged, or `otadata` couldn't be updated (`409 not_staged`,
-    /// as before).
-    NotStaged,
-    /// The staged image belongs to another deployment (`409`).
-    DeploymentMismatch,
-    /// The staged record couldn't be persisted; nothing was activated.
-    Storage(OtaMetadataError),
 }
 
 /// Persists IOBEWI OTA's validation result after the image is confirmed.
