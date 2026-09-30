@@ -163,7 +163,7 @@ impl<AB: ConfigBackend + 'static, OB: ConfigBackend + 'static> WriteBackend for 
 /// `SharedFlash`/`OtaConfigSpace`, only whether each step succeeded.
 #[derive(Clone, Copy)]
 pub(crate) struct EspFactoryOta {
-    flash: &'static SharedFlash,
+    pub(crate) flash: &'static SharedFlash,
     pub(crate) ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
 }
 
