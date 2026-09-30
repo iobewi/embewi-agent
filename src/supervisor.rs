@@ -146,6 +146,17 @@ impl crate::http::config::FactoryOta for EspFactoryOta {
     }
 }
 
+/// GPIO numbers this firmware can drive as the status LED, exposed to the
+/// factory-provisioning HTTP form. Must stay exactly in sync with
+/// `bin/main.rs`'s own `match gpio { 0 => peripherals.GPIO0, ... }` --
+/// this is the set that runtime match actually knows how to apply, not
+/// every pin the chip physically has.
+pub const STATUS_LED_GPIOS: &[u8] = &[
+    0, 1, 2, 3, 4, 5, 6, 7,
+    8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21,
+];
+
 /// Last 3 bytes of the efuse-burned MAC address: the device-unique suffix
 /// every ESP composition-root identity/name derived from hardware uses.
 /// Shared with `bin/init.rs`'s Improv device name to avoid two independent
@@ -361,6 +372,7 @@ async fn run_http_provisioning(
         reboot,
         &ESP_DEVICE_IDENTITY,
         &ESP_TOKEN_ENTROPY,
+        STATUS_LED_GPIOS,
     ).await
 }
 

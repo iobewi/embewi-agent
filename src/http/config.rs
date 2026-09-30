@@ -34,9 +34,6 @@ const INDEX_TEMPLATE: &str = include_str!("index.html");
 const CONFIRM_TEMPLATE: &str = include_str!("confirm.html");
 const LOCKED_PAGE: &str = include_str!("locked.html");
 
-/// Highest usable GPIO number on this chip. Update when this firmware
-/// targets a chip other than ESP32-C3.
-const MAX_GPIO: u8 = 21;
 /// Sent by the form in place of a real pin number to mean "no status LED".
 const LED_DISABLED: u8 = 255;
 
@@ -55,14 +52,14 @@ fn message_html(text: &str, is_error: bool) -> String {
     format!("<p class=\"{class}\">{text}</p>")
 }
 
-fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&str>) -> String {
+fn page(led_gpio: Option<u8>, node_id: &str, ctrl_url: &str, message: Option<&str>, status_led_gpios: &[u8]) -> String {
     let mut options = String::new();
     let _ = write!(
         options,
         "<option value=\"{LED_DISABLED}\"{}>D\u{e9}sactiv\u{e9}e</option>",
         if led_gpio.is_none() { " selected" } else { "" }
     );
-    for gpio in 0..=MAX_GPIO {
+    for &gpio in status_led_gpios {
         let _ = write!(
             options,
             "<option value=\"{gpio}\"{}>{gpio}</option>",
@@ -92,6 +89,7 @@ pub async fn serve<L, R, FO, I, E, AB, HB, LB>(
     reboot: R,
     identity: &'static I,
     entropy: &'static E,
+    status_led_gpios: &'static [u8],
 ) -> !
 where
     L: iobewi_https::TlsListener,
@@ -119,7 +117,7 @@ where
                 }
                 let node_id = agent::node_id(agent_config, identity).await;
                 let ctrl_url = agent::ctrl_url(agent_config).await;
-                Response::ok(page(led_gpio, &node_id, &ctrl_url, None))
+                Response::ok(page(led_gpio, &node_id, &ctrl_url, None, status_led_gpios))
                     .with_content_type("text/html; charset=utf-8")
             })
             // Single, one-shot save: on success this always locks and
@@ -143,7 +141,7 @@ where
                         .with_content_type("text/html; charset=utf-8");
                 }
                 let gpio = (form.led_gpio != LED_DISABLED).then_some(form.led_gpio);
-                if gpio.is_some_and(|gpio| gpio > MAX_GPIO) {
+                if gpio.is_some_and(|gpio| !status_led_gpios.contains(&gpio)) {
                     return Response::new(
                         StatusCode::BAD_REQUEST,
                         page(
@@ -151,6 +149,7 @@ where
                             &form.node_id,
                             &form.ctrl_url,
                             Some(&message_html("Broche hors plage pour cette puce.", true)),
+                            status_led_gpios,
                         ),
                     )
                     .with_content_type("text/html; charset=utf-8");
@@ -173,6 +172,7 @@ where
                             &form.node_id,
                             &form.ctrl_url,
                             Some(&message_html("\u{c9}chec de l'\u{e9}criture en m\u{e9}moire flash, r\u{e9}essayez.", true)),
+                            status_led_gpios,
                         ),
                     )
                     .with_content_type("text/html; charset=utf-8");
@@ -190,6 +190,7 @@ where
                             &form.node_id,
                             &form.ctrl_url,
                             Some(&message_html("L'image agent préchargée est absente ou invalide.", true)),
+                            status_led_gpios,
                         ),
                     )
                     .with_content_type("text/html; charset=utf-8");
@@ -203,6 +204,7 @@ where
                             &form.node_id,
                             &form.ctrl_url,
                             Some(&message_html("Échec du passage à ReadyForAgent.", true)),
+                            status_led_gpios,
                         ),
                     )
                     .with_content_type("text/html; charset=utf-8");
@@ -219,6 +221,7 @@ where
                             &form.node_id,
                             &form.ctrl_url,
                             Some(&message_html("Échec de l'activation du premier agent.", true)),
+                            status_led_gpios,
                         ),
                     )
                     .with_content_type("text/html; charset=utf-8");
