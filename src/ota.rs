@@ -36,8 +36,8 @@ use iobewi_ota::metadata::{
 pub use iobewi_ota::metadata::{MetadataError as OtaMetadataError, SessionParams, Stage, Staged};
 use iobewi_esp_ota::otadata;
 use iobewi_esp_ota::shared_flash as platform_ota;
-use iobewi_esp_ota::service::{EspBoot, OtaStore};
-pub use iobewi_esp_ota::service::OtaConfigSpace;
+use iobewi_esp_ota::service::EspBoot;
+use iobewi_ota::config_space::{ConfigSpaceBootstrapStore, ConfigSpaceMetadataStore};
 
 use iobewi_esp_config_space::NvsConfigBackend;
 
@@ -45,47 +45,30 @@ pub use iobewi_ota::bootstrap::{BootstrapError, BootstrapState};
 pub const BOOTSTRAP_CONFIG_BUDGET: Budget =
     Budget::new(iobewi_ota::bootstrap::MAX_BYTES);
 pub type BootstrapConfigSpace<B> = ConfigSpace<B>;
-
-struct BootstrapConfigStore<'a, B: ConfigBackend>(&'a ConfigSpace<B>);
-
-impl<B: ConfigBackend> iobewi_ota::bootstrap::BootstrapStore for BootstrapConfigStore<'_, B> {
-    type Error = ();
-
-    async fn load_raw(&self) -> Result<Option<alloc::vec::Vec<u8>>, Self::Error> {
-        self.0
-            .load()
-            .await
-            .map(|snapshot| snapshot.map(|snapshot| snapshot.data))
-            .map_err(|_| ())
-    }
-
-    async fn commit_raw(&self, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.0.commit(bytes).await.map(|_| ()).map_err(|_| ())
-    }
-}
+pub type OtaConfigSpace<B> = ConfigSpace<B>;
 
 pub async fn bootstrap_state<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<BootstrapState, BootstrapError> {
-    iobewi_ota::bootstrap::state(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::state(&ConfigSpaceBootstrapStore(space)).await
 }
 
 pub async fn begin_provisioning<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota::bootstrap::begin_provisioning(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::begin_provisioning(&ConfigSpaceBootstrapStore(space)).await
 }
 
 pub async fn ready_for_agent<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota::bootstrap::ready_for_agent(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::ready_for_agent(&ConfigSpaceBootstrapStore(space)).await
 }
 
 pub async fn production<B: ConfigBackend>(
     space: &ConfigSpace<B>,
 ) -> Result<(), BootstrapError> {
-    iobewi_ota::bootstrap::production(&BootstrapConfigStore(space)).await
+    iobewi_ota::bootstrap::production(&ConfigSpaceBootstrapStore(space)).await
 }
 use iobewi_esp_flash::SharedFlash;
 
@@ -132,7 +115,7 @@ const WATCHDOG_DEADLINE_MS: u64 = 20_000;
 
 
 async fn load_metadata<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Result<OtaMetadata, OtaMetadataError> {
-    iobewi_ota::metadata::load_metadata(&OtaStore(space)).await
+    iobewi_ota::metadata::load_metadata(&ConfigSpaceMetadataStore(space)).await
 }
 
 pub async fn staged<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Staged {
@@ -146,7 +129,7 @@ pub async fn staged<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Staged {
 }
 
 pub async fn clear_staged<OB: ConfigBackend>(space: &OtaConfigSpace<OB>) -> Result<(), OtaMetadataError> {
-    iobewi_ota::metadata::clear_staged(&OtaStore(space)).await
+    iobewi_ota::metadata::clear_staged(&ConfigSpaceMetadataStore(space)).await
 }
 
 /// Digest of the currently-running, validated firmware.
@@ -199,7 +182,7 @@ pub async fn stage_preloaded_agent<OB: ConfigBackend>(
     }
 
     iobewi_ota::service::publish(
-        &OtaStore(ota_config), String::from(image.deployment_id),
+        &ConfigSpaceMetadataStore(ota_config), String::from(image.deployment_id),
         iobewi_ota::Committed { size: u64::from(image.size), digest: expected },
         String::from(slot.as_str()),
     )
@@ -213,7 +196,7 @@ pub async fn stage_preloaded_agent<OB: ConfigBackend>(
 /// binaire esp32-s3 flashé sur esp32 ne boote pas").
 pub async fn prepare<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, req: &PrepareRequest) -> PrepareResponse {
     match iobewi_ota::service::prepare(
-        &OtaStore(ota_config), &EspBoot(flash), &req.chip, &req.partition_layout,
+        &ConfigSpaceMetadataStore(ota_config), &EspBoot(flash), &req.chip, &req.partition_layout,
         esp_metadata_generated::chip_pretty!(), PARTITION_LAYOUT, u64::from(req.size),
     ).await {
         Ok(target) => PrepareResponse::accept(target),
@@ -257,7 +240,7 @@ pub async fn write_begin<OB: ConfigBackend>(
     // service touches ConfigSpace: both capabilities share that same lock.
     let target = platform_ota::write_target(flash).await.map_err(|_| BeginError::Busy)?;
     UPLOAD.begin(
-        &OtaStore(ota_config), params, target.size as u64,
+        &ConfigSpaceMetadataStore(ota_config), params, target.size as u64,
         iobewi_esp_ota::service::EspUploadWriter::new(flash, target),
     ).await.map_err(|error| match error {
         iobewi_ota::service::upload::StartError::TooLarge => BeginError::TooLarge,
@@ -282,7 +265,7 @@ pub enum WriteFinishError {
 }
 
 pub async fn write_finish<OB: ConfigBackend>(ota_config: &OtaConfigSpace<OB>) -> Result<WriteFinishOk, WriteFinishError> {
-    let result = UPLOAD.finish(&OtaStore(ota_config)).await.map_err(|error| match error {
+    let result = UPLOAD.finish(&ConfigSpaceMetadataStore(ota_config)).await.map_err(|error| match error {
         iobewi_ota::service::upload::FinishError::NotWriting => WriteFinishError::NotWriting,
         iobewi_ota::service::upload::FinishError::DigestMismatch(computed) => {
             warn!("ota: digest mismatch, calculated={}", format_digest(&computed));
@@ -312,7 +295,7 @@ pub async fn write_finish<OB: ConfigBackend>(ota_config: &OtaConfigSpace<OB>) ->
 /// since `/ota/write` finished.
 pub async fn activate<OB: ConfigBackend>(flash: &SharedFlash, ota_config: &OtaConfigSpace<OB>, deployment_id: &str) -> Result<String, ActivateError> {
     let slot = iobewi_ota::service::activate_staged(
-        &OtaStore(ota_config), &EspBoot(flash), deployment_id,
+        &ConfigSpaceMetadataStore(ota_config), &EspBoot(flash), deployment_id,
     ).await.map_err(|error| match error {
         iobewi_ota::service::ActivateError::NotStaged => ActivateError::NotStaged,
         iobewi_ota::service::ActivateError::DeploymentMismatch => ActivateError::DeploymentMismatch,
@@ -362,7 +345,7 @@ pub async fn confirm_pending<OB: ConfigBackend>(
                 warn!("ota: [fault-injection] self-check passed, resetting BEFORE confirm to exercise rollback");
                 iobewi_esp_ota::service::reset_for_rollback().await;
             }
-            match iobewi_ota::service::boot::confirm_pending(&OtaStore(ota_config), &platform).await {
+            match iobewi_ota::service::boot::confirm_pending(&ConfigSpaceMetadataStore(ota_config), &platform).await {
                 iobewi_ota::service::boot::Confirmation::Valid => {
                     agent::set_state(agent::State::Running);
                     info!("ota: validation done");
@@ -399,7 +382,7 @@ pub async fn on_boot<OB: ConfigBackend>(
 ) -> BootDisposition {
     use iobewi_ota::service::boot::BootStatus;
     let platform = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: nvs_backend };
-    let result = iobewi_ota::service::boot::on_boot(&OtaStore(ota_config), &platform).await;
+    let result = iobewi_ota::service::boot::on_boot(&ConfigSpaceMetadataStore(ota_config), &platform).await;
     info!("ota: boot slot={:?} image={:?} -> {:?}", result.slot, result.image, result.action);
     match result.status {
         BootStatus::PendingVerify => {
