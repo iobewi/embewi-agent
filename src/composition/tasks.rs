@@ -31,12 +31,15 @@ struct AgentLogConfig<I: 'static> {
     identity: &'static I,
 }
 
-impl<I: DeviceIdentity> iobewi_log_stream::LogConfig for AgentLogConfig<I> {
-    async fn ctrl_url(&self) -> alloc::string::String { crate::agent::ctrl_url(self.space).await }
-    async fn token(&self) -> alloc::string::String { crate::agent::token(self.space).await }
+impl<I: DeviceIdentity> iobewi_log::LogMetadata for AgentLogConfig<I> {
     async fn node_id(&self) -> alloc::string::String { crate::agent::node_id(self.space, self.identity).await }
     fn timestamp(&self) -> u64 { crate::time::now().unwrap_or(0) }
     fn workload(&self) -> &'static str { crate::agent::FW_NAME }
+}
+
+impl<I: DeviceIdentity> iobewi_log_stream::StreamConfig for AgentLogConfig<I> {
+    async fn ctrl_url(&self) -> alloc::string::String { crate::agent::ctrl_url(self.space).await }
+    async fn token(&self) -> alloc::string::String { crate::agent::token(self.space).await }
     fn path(&self) -> alloc::string::String {
         alloc::format!("{}/logs", crate::http::api::API_PREFIX)
     }
