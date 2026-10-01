@@ -4,7 +4,8 @@
 use embassy_net::StackResources;
 use static_cell::StaticCell;
 
-pub use iobewi_wifi::{CONFIG_BUDGET, Network, WifiManager, WifiProvisioning, WifiTransport, is_provisioned};
+pub use iobewi_wifi_core::{Network, WifiProvisioning, WifiTransport};
+pub use iobewi_wifi_manager::{CONFIG_BUDGET, WifiManager, is_provisioned};
 
 // Socket count is application policy: DHCP, HTTPS, SNTP and outbound clients.
 const SOCKETS: usize = 8;

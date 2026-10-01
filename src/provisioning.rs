@@ -14,7 +14,7 @@ use log::{info, warn};
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
 use crate::Status;
 use iobewi_indicator::StatusIndicator;
-use iobewi_wifi::WifiProvisioning;
+use iobewi_wifi_core::WifiProvisioning;
 
 /// Device identity for Improv's `GetDeviceInfo` RPC. Owned by the platform
 /// composition root -- how the chip name or a per-board device name suffix
@@ -30,9 +30,9 @@ pub struct DeviceInfo<'a> {
 /// Application port: "an IP-capable network is now available; start
 /// whatever services depend on it." Not a hardware abstraction competing
 /// with IOBEWI -- this is application orchestration (provisioning workflow
-/// -> service supervisor), so it lives here rather than in `iobewi-wifi`.
+/// -> service supervisor), so it lives here rather than in `iobewi-wifi-core`.
 /// `N` is whatever opaque network handle the Wi-Fi capability in use
-/// produces (`iobewi_wifi::WifiProvisioning::NetworkHandle`); this module
+/// produces (`iobewi_wifi_core::WifiProvisioning::NetworkHandle`); this module
 /// never inspects it, only forwards it.
 pub trait NetworkReady<N> {
     fn on_network_ready(&mut self, network: N);
@@ -41,7 +41,7 @@ pub trait NetworkReady<N> {
 /// Serves Improv Serial forever. Generic over the serial transport, the
 /// Wi-Fi capability, the platform's status indicator, and the application's
 /// network-ready port: this module has no idea what the real Wi-Fi backend
-/// is -- see `iobewi_wifi::WifiProvisioning`.
+/// is -- see `iobewi_wifi_core::WifiProvisioning`.
 pub async fn run<R, T, WifiT, I, S>(
     mut rx: R,
     mut tx: T,
