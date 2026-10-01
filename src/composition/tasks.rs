@@ -8,10 +8,8 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_indicator::EspStatusIndicator;
-use iobewi_esp_log_stream::EspLogEntropy;
 use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
-use iobewi_esp_tls::service::EspClientTransport;
 use static_cell::StaticCell;
 
 use super::ota::{AgentBootInfo, AgentOtaBackend, EspFactoryOta};
@@ -55,12 +53,12 @@ pub(crate) async fn run_heartbeat(
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
-    tls: iobewi_esp_tls::service::TlsReferenceStatic,
+    tls_config: &'static crate::esp_tls::TlsConfigSpace<NvsConfigBackend>,
+    tls: crate::esp_tls::TlsReferenceStatic,
     diagnostics: EspRuntimeDiagnostics,
 ) -> ! {
-    static TRANSPORT: StaticCell<EspClientTransport<NvsConfigBackend>> = StaticCell::new();
-    let transport = &*TRANSPORT.init(EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set });
+    static TRANSPORT: StaticCell<crate::esp_tls::EspClientTransport<NvsConfigBackend>> = StaticCell::new();
+    let transport = &*TRANSPORT.init(crate::esp_tls::client_transport(tls, stack, tls_config, crate::time::is_set));
     crate::heartbeat::run(transport, diagnostics, &ESP_DEVICE_IDENTITY, agent_config, runtime_config, ota_config).await
 }
 
@@ -68,16 +66,16 @@ pub(crate) async fn run_heartbeat(
 pub(crate) async fn run_log_stream(
     stack: Stack<'static>,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
-    tls: iobewi_esp_tls::service::TlsReferenceStatic,
+    tls_config: &'static crate::esp_tls::TlsConfigSpace<NvsConfigBackend>,
+    tls: crate::esp_tls::TlsReferenceStatic,
 ) -> ! {
     let config = AgentLogConfig { space: agent_config, identity: &ESP_DEVICE_IDENTITY };
-    let transport = EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set };
-    iobewi_log_stream::run(&config, &transport, &EspLogEntropy).await
+    let transport = crate::esp_tls::client_transport(tls, stack, tls_config, crate::time::is_set);
+    iobewi_log_stream::run(&config, &transport, &ESP_ENTROPY).await
 }
 
 /// Constructs the platform's `EspTlsListener` (the ESP implementation of the
-/// portable `iobewi_https::TlsListener`) and calls into the generic,
+/// `iobewi_net_tls_core::TlsListener`) and calls into the generic,
 /// portable `http::api::serve` -- embassy tasks can't themselves be
 /// generic, so the platform's concrete listener type is chosen here, at the
 /// composition root, exactly like `run_heartbeat`/`run_log_stream` above.
@@ -91,18 +89,18 @@ pub(crate) async fn run_http_api(
     nvs_backend: &'static NvsConfigBackend,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     app_config: &'static ConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
+    tls_config: &'static crate::esp_tls::TlsConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     reboot: EspReboot,
-    tls: iobewi_esp_tls::service::TlsReferenceStatic,
+    tls: crate::esp_tls::TlsReferenceStatic,
 ) -> ! {
     let mut rx = [0u8; 1024];
     let mut tx = [0u8; 1024];
     let mut listener = EspTlsListener::new(
         stack,
         tls,
-        || iobewi_esp_tls::service::server_config(tls_config),
+        || crate::esp_tls::server_config(tls_config),
         &mut rx,
         &mut tx,
     );
@@ -135,19 +133,19 @@ pub(crate) async fn run_http_provisioning(
     flash: &'static SharedFlash,
     agent_config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     hardware_config: &'static crate::hardware::HardwareConfigSpace<NvsConfigBackend>,
-    tls_config: &'static iobewi_esp_tls::service::TlsConfigSpace<NvsConfigBackend>,
+    tls_config: &'static crate::esp_tls::TlsConfigSpace<NvsConfigBackend>,
     lifecycle_config: &'static crate::ota::BootstrapConfigSpace<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     factory_agent: crate::ota::PreloadedAgent,
     reboot: EspReboot,
-    tls: iobewi_esp_tls::service::TlsReferenceStatic,
+    tls: crate::esp_tls::TlsReferenceStatic,
 ) -> ! {
     let mut rx = [0u8; 1024];
     let mut tx = [0u8; 1024];
     let mut listener = EspTlsListener::new(
         stack,
         tls,
-        || iobewi_esp_tls::service::server_config(tls_config),
+        || crate::esp_tls::server_config(tls_config),
         &mut rx,
         &mut tx,
     );

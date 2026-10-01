@@ -51,9 +51,9 @@ pub(super) fn unauthorized() -> JsonResponse {
 /// listener -- this layer knows only "serve this router over TLS
 /// connections accepted by `listener`", never which concrete TLS stack or
 /// hardware produced them.
-pub(super) async fn serve<L: iobewi_https::TlsListener>(
+pub(super) async fn serve<L: iobewi_net_tls_core::TlsListener>(
     listener: &mut L,
     router: &HttpRouter<impl PathRouter>,
 ) -> ! {
-    iobewi_https::serve_forever(listener, router).await
+    iobewi_http_server::serve_forever_tls(listener, router).await
 }

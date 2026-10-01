@@ -28,7 +28,7 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 /// of both being reserved simultaneously and permanently.
 ///
 /// `tls_backend` supplies TLS-identity authorization/persistence through the
-/// portable `iobewi_tls::http::ProvisioningBackend` capability -- this
+/// portable `iobewi_tls_service::http::ProvisioningBackend` capability -- this
 /// module never knows how certificates are validated or stored, only that
 /// `cert_response`/`ca_response` need a backend to call.
 pub async fn serve<L, R, TB, O, H, B, M, OM, I, AB, APPB, RB, OB>(
@@ -47,9 +47,9 @@ pub async fn serve<L, R, TB, O, H, B, M, OM, I, AB, APPB, RB, OB>(
     identity: &'static I,
 ) -> !
 where
-    L: iobewi_https::TlsListener,
+    L: iobewi_net_tls_core::TlsListener,
     R: RebootPort + Clone + 'static,
-    TB: iobewi_tls::http::ProvisioningBackend + Clone + 'static,
+    TB: iobewi_tls_service::http::ProvisioningBackend + Clone + 'static,
     O: iobewi_ota::http::ControlBackend + iobewi_ota::http::WriteBackend + Clone + 'static,
     H: agent::StorageHealth,
     B: agent::BootInfoSource,
@@ -195,25 +195,25 @@ where
         // supplies the injected `tls_backend` capability, never how
         // certificates are validated or persisted.
         .route(
-            iobewi_tls::http::CERT_PATH,
+            iobewi_tls_service::http::CERT_PATH,
             post({
                 let tls_backend = tls_backend.clone();
                 move |agent::Bearer(token): agent::Bearer, body: String| {
                     let tls_backend = tls_backend.clone();
                     async move {
-                        iobewi_tls::http::cert_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
+                        iobewi_tls_service::http::cert_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
                     }
                 }
             }),
         )
         .route(
-            iobewi_tls::http::CA_PATH,
+            iobewi_tls_service::http::CA_PATH,
             post({
                 let tls_backend = tls_backend.clone();
                 move |agent::Bearer(token): agent::Bearer, body: String| {
                     let tls_backend = tls_backend.clone();
                     async move {
-                        iobewi_tls::http::ca_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
+                        iobewi_tls_service::http::ca_response(&tls_backend, token.as_deref().unwrap_or(""), &body).await
                     }
                 }
             }),

@@ -92,7 +92,7 @@ pub async fn serve<L, R, FO, I, E, C, AB, HB, LB>(
     indicator_capabilities: &'static C,
 ) -> !
 where
-    L: iobewi_https::TlsListener,
+    L: iobewi_net_tls_core::TlsListener,
     R: RebootPort + Clone + 'static,
     FO: FactoryOta + Clone + 'static,
     I: iobewi_device::DeviceIdentity,

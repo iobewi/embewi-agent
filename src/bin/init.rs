@@ -25,7 +25,7 @@ use embewi_agent_esp::wifi::WifiManager;
 // Composition roots are allowed to know the ESP TLS platform directly --
 // only the portable applicative library (embewi_agent_esp's own lib.rs)
 // must not re-export it.
-use iobewi_esp_tls::service as tls;
+use embewi_agent_esp::esp_tls as tls;
 use iobewi_esp_indicator::EspStatusIndicator;
 
 esp_bootloader_esp_idf::esp_app_desc!();

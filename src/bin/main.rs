@@ -20,7 +20,7 @@ use embewi_agent_esp::hardware;
 // Composition roots are allowed to know the ESP TLS platform directly --
 // only the portable applicative library (embewi_agent_esp's own lib.rs)
 // must not re-export it.
-use iobewi_esp_tls::service as tls;
+use embewi_agent_esp::esp_tls as tls;
 use iobewi_config_space::{ConfigManager, ConfigSpace};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use iobewi_esp_indicator::led_task;
