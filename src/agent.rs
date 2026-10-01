@@ -182,7 +182,7 @@ pub async fn save_identity<B: ConfigBackend, E: EntropySource>(
 }
 
 /// Common HTTP extractor; EmBewi applies its own constant-time token policy.
-pub use iobewi_http::auth::Bearer;
+pub use iobewi_http_server::auth::Bearer;
 
 /// Whether `presented` matches the stored Bearer token, compared in
 /// constant time (contrat §1: "pas de fuite du token octet par octet").

@@ -12,9 +12,9 @@
 use alloc::string::String;
 
 use picoserve::response::StatusCode;
-pub(super) use iobewi_http::json::{json_error, json_ok, JsonResponse};
-use iobewi_http::routing::PathRouter;
-use iobewi_http::HttpRouter;
+pub(super) use iobewi_http_server::json::{json_error, json_ok, JsonResponse};
+use iobewi_http_server::routing::PathRouter;
+use iobewi_http_server::HttpRouter;
 
 pub mod api;
 pub mod config;

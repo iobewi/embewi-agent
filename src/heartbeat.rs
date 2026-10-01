@@ -8,7 +8,7 @@
 //! This module never sees DNS, TCP, the TLS handshake, MbedTLS, or the
 //! network stack -- those, and the CA/clock fail-closed policy, are the
 //! platform transport's own construction-time concern. The portable
-//! `iobewi-http` client writes requests and drains responses over the
+//! `iobewi-http-client` writes requests and drains responses over the
 //! resulting stream.
 //!
 //! **One TLS connection reused across many heartbeats**, not a fresh
@@ -21,7 +21,7 @@
 //! until something actually requires a new connection -- the socket drops,
 //! the server sends `Connection: close`, `ctrl_url` changes, or this
 //! response framing cannot be safely reused (see
-//! [`iobewi_http::client::drain_response`]) -- at which point it returns and the outer loop
+//! [`iobewi_http_client::drain_response`]) -- at which point it returns and the outer loop
 //! reconnects.
 //!
 //! The one thing that makes reuse safe at all: **fully draining every
@@ -30,7 +30,7 @@
 //! connection away right after (it always closed next). On a kept-open
 //! connection, any header or body byte left unread is exactly what the
 //! *next* heartbeat's response parser would misread as the start of a new
-//! one -- so `iobewi_http::client::drain_response` parses `Content-Length` (or a minimal
+//! one -- so `iobewi_http_client::drain_response` parses `Content-Length` (or a minimal
 //! `Transfer-Encoding: chunked` decoder) and consumes precisely that many
 //! body bytes before this loop is allowed to send again. A response with
 //! neither framing header present is genuinely ambiguous per HTTP/1.1 (no
@@ -153,7 +153,7 @@ pub async fn run<T: SecureClientTransport, D: RuntimeDiagnostics, I: iobewi_devi
 /// [`PERIOD`] until something ends the session: a transport error, the
 /// server declining keep-alive (explicitly via `Connection: close`, or
 /// implicitly by sending a response this side can't safely re-sync after --
-/// see `iobewi_http::client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
+/// see `iobewi_http_client::drain_response`), or `ctrl_url` changing out from under it. `Ok`
 /// and `Err` returns are both just "the caller should reconnect" -- the
 /// distinction is only for `run`'s log line, not control flow.
 async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: iobewi_device::DeviceIdentity, AB: iobewi_config_space::ConfigBackend, RB: iobewi_config_space::ConfigBackend, OB: iobewi_config_space::ConfigBackend>(
@@ -205,7 +205,7 @@ async fn run_session<T: SecureClientTransport, D: RuntimeDiagnostics, I: iobewi_
             return Err(format!("send to {host} failed: {e}"));
         }
 
-        let (status, keep_alive) = match iobewi_http::client::drain_response(&mut session, &mut resp_buf).await {
+        let (status, keep_alive) = match iobewi_http_client::drain_response(&mut session, &mut resp_buf).await {
             Ok(result) => result,
             Err(e) => return Err(format!("reading response from {host} failed: {e}")),
         };
@@ -266,7 +266,7 @@ async fn send_heartbeat<'h, T: SecureClientTransport, D: RuntimeDiagnostics, I: 
     };
     let json = serde_json::to_string(&body).map_err(|_| String::from("heartbeat body failed to serialize"))?;
 
-    iobewi_http::client::post_json(
+    iobewi_http_client::post_json(
         session, host_str, "/v1alpha1/heartbeat", token, &json,
     ).await?;
     Ok(())

@@ -9,8 +9,8 @@ use alloc::format;
 use alloc::string::String;
 
 use picoserve::response::StatusCode;
-use iobewi_http::routing::{get, post};
-use iobewi_http::HttpRouter;
+use iobewi_http_server::routing::{get, post};
+use iobewi_http_server::HttpRouter;
 use iobewi_ota::http::RebootPort;
 
 use crate::agent;

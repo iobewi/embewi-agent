@@ -11,8 +11,8 @@ use core::fmt::Write as _;
 
 use picoserve::extract::Form;
 use picoserve::response::{File, Response, StatusCode};
-use iobewi_http::routing::{get, get_service};
-use iobewi_http::HttpRouter;
+use iobewi_http_server::routing::{get, get_service};
+use iobewi_http_server::HttpRouter;
 use iobewi_ota::http::RebootPort;
 
 use crate::agent;
