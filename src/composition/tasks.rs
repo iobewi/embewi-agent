@@ -8,7 +8,7 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_indicator::EspStatusIndicator;
-use iobewi_esp_log_stream::EspLogTransport;
+use iobewi_esp_log_stream::EspLogEntropy;
 use iobewi_esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use iobewi_esp_tls::service::EspClientTransport;
@@ -69,8 +69,8 @@ pub(crate) async fn run_log_stream(
     tls: iobewi_esp_tls::service::TlsReferenceStatic,
 ) -> ! {
     let config = AgentLogConfig { space: agent_config, identity: &ESP_DEVICE_IDENTITY };
-    let transport = EspLogTransport { stack, tls, tls_config, clock_is_set: crate::time::is_set };
-    iobewi_log_stream::run(&config, &transport).await
+    let transport = EspClientTransport { tls, stack, tls_config, clock_is_set: crate::time::is_set };
+    iobewi_log_stream::run(&config, &transport, &EspLogEntropy).await
 }
 
 /// Constructs the platform's `EspTlsListener` (the ESP implementation of the

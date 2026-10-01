@@ -43,7 +43,8 @@ use alloc::string::String;
 
 use embassy_time::{Duration, Instant, Timer};
 use iobewi_runtime::RuntimeDiagnostics;
-use iobewi_transport::{Close, SecureClientTransport};
+use iobewi_net_io::Close;
+use iobewi_net_tls_core::SecureClientTransport;
 use log::{info, warn};
 use serde::Serialize;
 
