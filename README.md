@@ -6,7 +6,7 @@ Agent embarqué Rust du protocole [Embewi](https://github.com/iobewi/embewi)
 rattachée à ce dépôt sous forme de submodule.
 
 **Objectif :** compiler le même agent avec un adaptateur de plateforme choisi
-à la construction : [`iobewi-esp`](https://github.com/iobewi/iobewi-esp) pour ESP,
+à la construction : les implémentations ESP du dépôt [`iobewi`](https://github.com/iobewi/iobewi) (`arch/esp32`, `drivers/*/esp32`, `bootloader/esp`…) pour ESP,
 puis `rpbewi` pour RP2350 et `teensybewi` pour Teensy. Ces deux derniers
 adaptateurs sont prévus, pas encore implémentés.
 
@@ -26,11 +26,11 @@ extrait. Le paquet et le binaire portent encore le nom historique
 | [IOBEWI OTA](https://github.com/iobewi/iobewi/tree/main/services/ota) | Gestion OTA, transactions, reprise, validation et métadonnées durables indépendantes du matériel. |
 | [IOBEWI Wi-Fi et TLS](https://github.com/iobewi/iobewi/tree/main/services) | Identifiants Wi-Fi, reconnexion, reprovisionnement, identité TLS et confiance durables. |
 | [IOBEWI ConfigSpace](https://github.com/iobewi/iobewi/tree/main/services/config-space) | Espaces de configuration, quotas et générations indépendants du stockage physique. |
-| `iobewi-esp` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des services demandés par l'agent, IOBEWI OTA et ConfigSpace. |
+| Implémentations ESP d'`iobewi` / futurs adaptateurs RP2350, Teensy | Implémentations matérielles des services demandés par l'agent, IOBEWI OTA et ConfigSpace. |
 | Firmware de plateforme | Initialisation des périphériques, choix de l'adaptateur et assemblage du binaire pour la cible. |
 
 IOBEWI OTA et ConfigSpace définissent leurs interfaces et ne dépendent pas d'un
-adaptateur ESP. `iobewi-esp` fournit leurs implémentations sur ESP : flash,
+adaptateur ESP. Les crates ESP d'`iobewi` fournissent leurs implémentations sur ESP : flash,
 partitions, boot, NVS, watchdog, Wi-Fi et TLS. Le choix de la plateforme est
 statique à la compilation ; chaque cible conserve sa toolchain, son linker,
 son plan de flash et son bootloader propres.
@@ -89,7 +89,7 @@ utilisé par la CI pour l'ESP32-S3 est :
 cargo +esp check --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
 ```
 
-Pour construire l'image flashable avec le bootloader iobewi-esp :
+Pour construire l'image flashable avec le bootloader ESP d'iobewi (`bootloader/esp`) :
 
 ```sh
 scripts/build-boot.sh

@@ -2,10 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# The bootloader now lives in the iobewi monorepo (provisional subtree
-# iobewi-esp/); same revision as the iobewi crates pinned in Cargo.toml.
+# The bootloader lives in the iobewi monorepo (bootloader/esp); same revision as the iobewi crates pinned in Cargo.toml.
 IOBEWI_REPO="https://github.com/iobewi/iobewi"
-IOBEWI_REV="e8c3ba489dd06ece026179dded5db22cf889d267"
+IOBEWI_REV="512afb70bcde1db507d3ef9a5d9f705025e86c82"
 CHECKOUT="$ROOT/target/iobewi-esp-bootloader-src"
 CHIP=esp32s3
 TARGET=xtensa-esp32s3-none-elf
@@ -17,6 +16,6 @@ fi
 git -C "$CHECKOUT" fetch --depth 1 origin "$IOBEWI_REV"
 git -C "$CHECKOUT" checkout --detach --force "$IOBEWI_REV" >/dev/null
 
-cd "$CHECKOUT/iobewi-esp/bootloader/esp"
+cd "$CHECKOUT/bootloader/esp"
 cargo +esp build --release --locked --features "$CHIP" -Z build-std=core,alloc --target "$TARGET"
 printf "%s\n" "$PWD/target/$TARGET/release/iobewi-esp-bootloader"

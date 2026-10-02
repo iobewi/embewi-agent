@@ -42,7 +42,7 @@ Wi-Fi (voir `src/http/`), pas depuis cette page statique. Après une
 connexion Wi-Fi réussie via Improv, un bouton « Visit Device » apparaît
 directement dans la fenêtre d'ESP Web Tools et y mène.
 
-## Image avec le bootloader iobewi-esp
+## Image avec le bootloader ESP d'iobewi
 
 ```sh
 scripts/build-boot.sh     # -> web/firmware/esp32c3/{firmware,app}.bin
