@@ -143,7 +143,10 @@ run_push_bad_digest() {
     check "digest faux -> 422" "$lastcode" "422"
     check "error == digest_mismatch" "$(jget "$last" error)" "digest_mismatch"
     local after; after=$(wl_get /status)
-    check "jamais staged (état inchangé: $before)" "$(jget "$after" state)" "$before"
+    # Un nouvel upload remplace le candidat précédent dès son premier octet (même slot) :
+    # après un échec il n'y a donc plus aucun candidat Staged -- jamais un Staged sur des octets écrasés.
+    check "jamais staged (le nouveau digest faux n'est pas candidat)" "$([[ "$(jget "$after" state)" != "staged" ]] && echo yes)" "yes"
+    check "aucun candidat déclaré" "$(jget "$after" candidate)" "None"
     rm -f "$evil"
 }
 
