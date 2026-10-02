@@ -177,7 +177,7 @@ async fn main(spawner: Spawner) -> ! {
     // Workload OTA (S17): capability from the partition table (by name), OTM2 recovery,
     // and the HTTP service. Selection/staging only; nothing is loaded or executed and
     // activation is refused (no supervisor exists).
-    let workload = embewi_agent_esp::workload::init(flash).await;
+    let (workload, workload_control) = embewi_agent_esp::workload::init(flash, spawner).await;
 
     let hardware_config = config_manager
         .claim("hardware", hardware::CONFIG_BUDGET)
@@ -307,6 +307,19 @@ async fn main(spawner: Spawner) -> ! {
         panic!("embewi-agent prerequisites are missing or invalid");
     }
 
+    // Dual-OTA guard (S14/S18): a new Agent that cannot satisfy the Workload that is
+    // active must not be confirmed; it is rejected and the previous Agent comes back.
+    if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify
+        && !embewi_agent_esp::workload::agent_can_run_active_workload(workload).await
+    {
+        log::error!(
+            "workload: this Agent (runtime API {:?}) cannot run the active Workload: rejecting the Agent update",
+            embewi_agent_esp::workload::RUNTIME_API
+        );
+        agent::set_state(agent::State::Failed);
+        embewi_agent_esp::ota::reject_pending(&boot_runtime, &boot_reset).await;
+    }
+
     match lifecycle {
         embewi_agent_esp::ota::BootstrapState::ReadyForAgent => {
             if boot == embewi_agent_esp::ota::BootDisposition::PendingVerify {
@@ -344,6 +357,11 @@ async fn main(spawner: Spawner) -> ! {
         }
     }
 
+    // Boot reconciliation of the Workload (offline: no Wi-Fi, no Core needed). Only
+    // reached once the Agent itself is confirmed/staying.
+    #[cfg(feature = "workload-supervisor-probe")]
+    spawner.spawn(embewi_agent_esp::workload::reconcile_task(workload_control).unwrap());
+
     // From here on the runtime is allowed to expose its administrative
     // surface. The HTTP module itself has no port-80 fallback.
     let tls = tls::init(embewi_agent_esp::time::now);
@@ -366,6 +384,7 @@ async fn main(spawner: Spawner) -> ! {
         ota_config,
         flash,
         workload,
+        workload_control,
         config_backend,
         diagnostics,
     );

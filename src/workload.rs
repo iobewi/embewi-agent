@@ -1,11 +1,12 @@
-//! Workload OTA (S17): capability, OTM2 state and the HTTP service. Selection and
-//! staging only -- nothing is loaded, executed or supervised, and activation is
-//! refused (`supervisor_unavailable`) because no Workload supervisor exists yet.
+//! Workload OTA and Supervisor wiring (S18).
 //!
-//! The capability comes from the on-flash partition table (partitions `wl_meta`,
-//! `workload_a`, `workload_b`, found by name). A device flashed with an older table,
-//! or a layout without Workload space, is `Unsupported`: the Agent never invents
-//! space for it, and every Workload route answers accordingly.
+//! * The capability comes from the on-flash partition table (partitions `wl_meta`,
+//!   `workload_a`, `workload_b`, found by name); an older table is `Unsupported`.
+//! * The persistent state is OTM2 (owned by the Workload OTA engine). The Supervisor
+//!   reconciles it with the execution state through a runtime backend.
+//! * Without the `workload-supervisor-probe` feature the Agent has **no** supervisor:
+//!   activation answers `501 supervisor_unavailable` and nothing runs. With it, a
+//!   minimal validation probe (see `probe`) stands in for the future runtime.
 
 use iobewi_config_space::ConfigBackend;
 use iobewi_esp_flash::SharedFlash;
@@ -16,18 +17,40 @@ use iobewi_workload_ota_http::Authorize;
 use static_cell::StaticCell;
 
 /// The runtime API this Agent provides to Workloads. **Single source of truth**:
-/// the Workload OTA service, `/workload/ota/status` and the activation gate all read
-/// it from here. It is a compatibility contract between Agent and Workload, not a
-/// kernel ABI; see `docs/dual-ota.md` in iobewi.
+/// the Workload OTA service, `/workload/ota/status`, the activation gate and the
+/// Agent-OTA guard all read it from here. It is a compatibility contract between
+/// Agent and Workload, not a kernel ABI; see `docs/dual-ota.md` in iobewi.
+#[cfg(not(feature = "test-runtime-api-0-9"))]
 pub const RUNTIME_API: RuntimeApi = RuntimeApi::new(1, 0);
+/// TEST ONLY: an API no 1.x Workload can run on.
+#[cfg(feature = "test-runtime-api-0-9")]
+pub const RUNTIME_API: RuntimeApi = RuntimeApi::new(0, 9);
 
 pub type WorkloadService = WorkloadOtaService<EspFlashAccess>;
 
-static SERVICE: StaticCell<WorkloadService> = StaticCell::new();
+#[cfg(feature = "workload-supervisor-probe")]
+pub mod probe_runtime;
 
-/// Probes the partition table, builds the (single) Workload OTA service and logs
-/// the capability and the OTM2 recovery state.
-pub async fn init(flash: &'static SharedFlash) -> &'static WorkloadService {
+#[cfg(feature = "workload-supervisor-probe")]
+pub type Supervisor =
+    iobewi_esp_workload::engine::supervisor::WorkloadSupervisor<EspFlashAccess, probe_runtime::ProbeRuntime>;
+/// What the HTTP routes call for activate/confirm/rollback.
+#[cfg(feature = "workload-supervisor-probe")]
+pub type Control = &'static Supervisor;
+#[cfg(not(feature = "workload-supervisor-probe"))]
+pub type Control = iobewi_workload_ota_http::NoSupervisor;
+
+static SERVICE: StaticCell<WorkloadService> = StaticCell::new();
+#[cfg(feature = "workload-supervisor-probe")]
+static SUPERVISOR: StaticCell<Supervisor> = StaticCell::new();
+
+/// Probes the partition table, builds the (single) Workload OTA service (and the
+/// Supervisor when the build has a runtime) and logs the capability and the OTM2
+/// recovery state. It does **not** start any Workload: that is `reconcile_task`.
+pub async fn init(
+    flash: &'static SharedFlash,
+    #[cfg_attr(not(feature = "workload-supervisor-probe"), allow(unused_variables))] spawner: embassy_executor::Spawner,
+) -> (&'static WorkloadService, Control) {
     let capability = probe(flash).await;
     match &capability {
         Capability::Supported(layout) => log::info!(
@@ -42,14 +65,44 @@ pub async fn init(flash: &'static SharedFlash) -> &'static WorkloadService {
         }
         Capability::TableUnreadable => log::warn!("workload: partition table unreadable: Workload OTA unavailable"),
     }
-    let service = SERVICE.init(WorkloadOtaService::new(availability(flash, capability), RUNTIME_API));
+    let service: &'static WorkloadService =
+        SERVICE.init(WorkloadOtaService::new(availability(flash, capability), RUNTIME_API));
     if let Ok(storage) = service.storage() {
         match storage.recover().await {
             Ok(state) => log::info!("workload: otm2 recovery: {state:?}"),
             Err(e) => log::warn!("workload: otm2 metadata unreadable: {e:?}"),
         }
     }
-    service
+    #[cfg(feature = "workload-supervisor-probe")]
+    let control: Control = {
+        log::warn!("workload: supervisor probe backend ENABLED (validation build, not a production runtime)");
+        &*SUPERVISOR.init(iobewi_esp_workload::engine::supervisor::WorkloadSupervisor::new(
+            service,
+            probe_runtime::ProbeRuntime::new(spawner),
+        ))
+    };
+    #[cfg(not(feature = "workload-supervisor-probe"))]
+    let control: Control = iobewi_workload_ota_http::NoSupervisor;
+    (service, control)
+}
+
+/// The guard of dual OTA: a *new* Agent may only be confirmed if it can still run the
+/// Workload that is active. `true` when there is no active Workload (or Workload OTA
+/// is unsupported / unreadable: nothing to protect).
+pub async fn agent_can_run_active_workload(service: &WorkloadService) -> bool {
+    match service.status().await.active {
+        Some(active) => RUNTIME_API.satisfies(active.requires),
+        None => true,
+    }
+}
+
+/// Boot-time reconciliation: OTM2 state -> running Workload (offline: needs no Wi-Fi,
+/// no Core). Runs once, right after the Agent decided to stay.
+#[cfg(feature = "workload-supervisor-probe")]
+#[embassy_executor::task]
+pub async fn reconcile_task(supervisor: &'static Supervisor) {
+    let outcome = supervisor.reconcile_boot().await;
+    log::info!("workload: boot reconcile -> {outcome:?}");
 }
 
 /// The same Bearer policy as the Agent OTA (no new auth mechanism).

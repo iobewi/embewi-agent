@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 #![no_std]
 extern crate alloc;
 
