@@ -218,8 +218,8 @@ PY
 
 run_runtime() {
     local s; s=$(wl_get /status)
-    echo "state=$(jget "$s" state) active=$(jget "$s" active.version) candidate=$(jget "$s" candidate.version) previous=$(jget "$s" previous_valid.version)"
-    echo "runtime: supervised=$(jget "$s" runtime.supervised) running=$(jget "$s" runtime.running) health=$(jget "$s" runtime.health) artifact=$(jget "$s" runtime.artifact)"
+    echo "state=$(jget "$s" state) active=$(jget "$s" active.version) candidate=$(jget "$s" candidate.version) previous=$(jget "$s" previous.version)"
+    echo "runtime: supervised=$(jget "$s" runtime.supervised) running=$(jget "$s" runtime.running) health=$(jget "$s" runtime.health) artifact=$(jget "$s" runtime.artifact.digest)"
 }
 
 wait_health() { # expected, tries
@@ -240,8 +240,8 @@ run_sup_activate() {
     local s; s=$(wl_get /status)
     check "OTM2 state == pending_confirmation" "$(jget "$s" state)" "pending_confirmation"
     check "le candidat tourne vraiment" "$(jget "$s" runtime.running)" "True"
-    check "runtime.artifact == digest" "$(jget "$s" runtime.artifact)" "$(digest_of "$file")"
-    check "health Healthy" "$(wait_health Healthy 15)" "Healthy"
+    check "runtime.artifact == digest" "$(jget "$s" runtime.artifact.digest)" "$(digest_of "$file")"
+    check "health healthy" "$(wait_health healthy 15)" "healthy"
 }
 
 run_sup_confirm() {
@@ -257,10 +257,10 @@ run_sup_rollback() {
     echo "rollback -> $(status_of "$r") $(body_of "$r")"
     check "rollback -> 200 rolled_back" "$(status_of "$r")$(jget "$(body_of "$r")" status)" "200rolled_back"
     local s; s=$(wl_get /status)
-    local want; want=$(jget "$before" previous_valid.digest)
+    local want; want=$(jget "$before" previous.digest)
     if [[ -n "$want" && "$want" != "None" ]]; then
         check "state == valid (precedent)" "$(jget "$s" state)" "valid"
-        check "le precedent tourne vraiment" "$(jget "$s" runtime.artifact)" "$want"
+        check "le precedent tourne vraiment" "$(jget "$s" runtime.artifact.digest)" "$want"
     else
         check "state == empty" "$(jget "$s" state)" "empty"
         check "plus rien ne tourne" "$(jget "$s" runtime.running)" "False"
@@ -269,7 +269,7 @@ run_sup_rollback() {
 
 run_sup_start_fault() {
     local file="${1:?file}" before; before=$(wl_get /status)
-    local old; old=$(jget "$before" runtime.artifact)
+    local old; old=$(jget "$before" runtime.artifact.digest)
     local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
     echo "activate -> $(status_of "$r") $(body_of "$r")"
     check "echec de demarrage -> 500" "$(status_of "$r")" "500"
@@ -277,7 +277,7 @@ run_sup_start_fault() {
     check "rolled_back == True" "$(jget "$(body_of "$r")" rolled_back)" "True"
     local s; s=$(wl_get /status)
     check "etat revenu a valid" "$(jget "$s" state)" "valid"
-    check "l'ancien Workload tourne a nouveau" "$(jget "$s" runtime.artifact)" "$old"
+    check "l'ancien Workload tourne a nouveau" "$(jget "$s" runtime.artifact.digest)" "$old"
 }
 
 run_sup_health_fault() {
@@ -295,7 +295,7 @@ run_sup_activate_nohealth() {
     local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
     echo "activate -> $(status_of "$r") $(body_of "$r")"
     check "activate -> 200" "$(status_of "$r")" "200"
-    check "runtime.health == Unhealthy" "$(wait_health Unhealthy 20)" "Unhealthy"
+    check "runtime.health == unhealthy" "$(wait_health unhealthy 20)" "unhealthy"
 }
 
 case "$MODE" in
