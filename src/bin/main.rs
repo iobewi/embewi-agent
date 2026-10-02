@@ -49,23 +49,51 @@ impl embewi_agent_esp::ota::BootReset for EspBootReset {
     }
 }
 
-/// Agent lifecycle -> status indicator. This function (the runtime's `main`)
-/// is the only caller of `set()` in the agent image, so there is no
-/// arbitration to do: one owner, one tracker. Policy:
+/// Agent lifecycle -> status indicator. The Wi-Fi manager owns the connection
+/// policy (connect, bounded backoff, reconnect: `WifiManager::maintain`); this
+/// binary only reacts to the events it reports. `main` is the only caller of
+/// `set()` in the agent image, so there is no arbitration to do. Policy:
 ///
 /// * `Booting`    -- initial state of every image.
 /// * `Connecting` -- the agent starts joining its saved network, and again
-///   whenever the network stack reports its configuration (link + DHCP)
-///   lost.
-/// * `Online`     -- Wi-Fi associated *and* DHCP configuration up (what
-///   `reconnect_saved` waits for), with the runtime services started. Not
-///   gated on a heartbeat: transient heartbeat/DNS/TLS errors do not change it.
-/// * `Failed`     -- the saved network could not be joined at boot. The
-///   runtime never retries on its own after that, so it needs the user.
+///   on every link-down event. An AP that is absent (at boot or later) just
+///   keeps this state while the manager retries; it is not a failure.
+/// * `Online`     -- the manager reports association *and* DHCP up; the
+///   runtime services are started on the first such event. Not gated on a
+///   heartbeat: transient heartbeat/DNS/TLS errors do not change it.
+/// * `Failed`     -- terminal only: the saved credentials are absent or
+///   invalid, so retrying cannot help.
 ///   Priority: `Failed` (terminal) > `Connecting` > `Online`.
 fn indicate<I: iobewi_indicator::StatusIndicator>(tracker: &StatusTracker<'_, I>, next: Status) {
     if let Some(previous) = tracker.set(next) {
         log::info!("indicator: {previous:?} -> {next:?}");
+    }
+}
+
+/// Executor timer for the manager's backoff.
+struct EmbassySleep;
+
+impl iobewi_wifi_manager::Sleep for EmbassySleep {
+    async fn sleep_ms(&self, ms: u32) {
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(ms as u64)).await;
+    }
+}
+
+/// Maps manager link events to the runtime services and the status LED.
+struct LinkEvents<'a> {
+    supervisor: &'a mut embewi_agent_esp::supervisor::ApplicationSupervisor,
+    status: &'a StatusTracker<'a, EspStatusIndicator>,
+}
+
+impl iobewi_wifi_manager::LinkObserver<embassy_net::Stack<'static>> for LinkEvents<'_> {
+    fn link_down(&mut self) {
+        indicate(self.status, Status::Connecting);
+    }
+
+    fn ready(&mut self, network: embassy_net::Stack<'static>) {
+        // Idempotent: services are started once, the stack handle is stable.
+        self.supervisor.on_ip_ready(network);
+        indicate(self.status, Status::Online);
     }
 }
 
@@ -336,25 +364,13 @@ async fn main(spawner: Spawner) -> ! {
     let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
     let mut wifi = WifiManager::new(transport, wifi_config);
     indicate(&status, Status::Connecting);
-    let stack = if wifi.reconnect_saved().await { wifi.network_handle() } else { None };
-    if let Some(stack) = stack {
-        supervisor.on_ip_ready(stack);
-        indicate(&status, Status::Online);
-
-        // Follow the stack's own link/DHCP events (no polling): configuration
-        // lost -> Connecting, configuration back -> Online.
-        loop {
-            stack.wait_config_down().await;
-            indicate(&status, Status::Connecting);
-            stack.wait_config_up().await;
-            indicate(&status, Status::Online);
-        }
-    }
+    let mut events = LinkEvents { supervisor: &mut supervisor, status: &status };
+    let ended = wifi.maintain(&EmbassySleep, &mut events).await;
+    log::error!("wifi: connection maintenance ended: {ended:?}");
     indicate(&status, Status::Failed);
 
-    // Runtime has no Improv/bootstrap service. If the saved network is
-    // unavailable it remains offline and retries only according to the normal
-    // connector policy; it never opens a provisioning fallback.
+    // Runtime has no Improv/bootstrap service and never opens a provisioning
+    // fallback. Reaching this point means the saved credentials are unusable.
     loop {
         embassy_time::Timer::after(embassy_time::Duration::from_secs(3600)).await;
     }
