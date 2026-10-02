@@ -14,6 +14,10 @@ jobs:
       - run: bash -n scripts/test-api.sh
       - run: bash -n scripts/build-boot.sh
       - run: bash -n scripts/build-iobewi-esp-bootloader.sh
+      - name: Partition tables (S3 16 MiB with Workload, C3 4 MiB reference)
+        run: |
+          python3 scripts/check-partitions.py partitions.csv --flash-size 16M
+          python3 scripts/check-partitions.py partitions-esp32c3.csv --flash-size 4M
 
   check-bootloader-esp32s3:
     runs-on: ubuntu-latest

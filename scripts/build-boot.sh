@@ -26,6 +26,9 @@ espflash save-image "${FLASH_ARGS[@]}"     "target/${TARGET}/release/embewi-agen
 cp "$AGENT_BIN" "$APP_BIN"
 
 AGENT_SIZE="$(stat -c%s "$AGENT_BIN")"
+
+# Size gate: the .bin written to ota_x must fit the slot of the partition table (S16).
+python3 scripts/check-partitions.py partitions.csv --flash-size 16M --agent-bin "$AGENT_BIN"
 AGENT_SHA="$(sha256sum "$AGENT_BIN" | cut -d' ' -f1)"
 AGENT_DIGEST="sha256:${AGENT_SHA}"
 AGENT_DEPLOYMENT="factory-${AGENT_SHA:0:16}"

@@ -1,0 +1,19 @@
+# Embewi Agent -- table de partitions de REFERENCE pour ESP32-C3 4 MiB (S16).
+#
+# AUCUN build ne l'utilise aujourd'hui : il n'existe pas d'Agent C3 (l'Agent est
+# ESP32-S3 seulement). Ce fichier fixe la decision de capacity planning du C3 et
+# est valide par scripts/check-partitions.py. Details et chiffres :
+# docs/esp32-workload-layout.md (iobewi).
+#
+# Agent A/B : identique au layout historique (nvs .. ota_1 inchanges, scenario A).
+# Workload A/B : 2 x 0x6F000 (444 KiB) apres wl_meta, jusqu'a la fin des 4 MiB.
+#
+# Name,     Type, SubType,   Offset,    Size,      Flags
+nvs,        data, nvs,       0x9000,    0x6000,
+otadata,    data, ota,       0xf000,    0x2000,
+phy_init,   data, phy,       0x11000,   0x1000,
+ota_0,      app,  ota_0,     0x20000,   0x180000,
+ota_1,      app,  ota_1,     0x1a0000,  0x180000,
+wl_meta,    data, undefined, 0x320000,  0x2000,
+workload_a, data, undefined, 0x322000,  0x6F000,
+workload_b, data, undefined, 0x391000,  0x6F000,

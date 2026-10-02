@@ -1,4 +1,5 @@
-# Embewi Agent -- table de partitions A/B (contrat §3/§6), 4 MB, sans factory.
+# Embewi Agent -- table de partitions ESP32-S3 16 MiB : Agent A/B (contrat §3/§6, inchange)
+# + stockage Workload A/B (S16). sans factory.
 #
 # Le bootloader boote depuis `otadata`, qui pointe ota_0 ou ota_1 -- layout
 # standard ESP-IDF pour le rollback (`esp_ota_mark_app_invalid_rollback_and_reboot`
@@ -6,9 +7,24 @@
 # offset/taille que la table par défaut d'espflash pour ne rien casser dans
 # storage.rs (PARTITION_OFFSET/PARTITION_SIZE).
 #
-# Name,     Type, SubType,  Offset,    Size,      Flags
-nvs,        data, nvs,      0x9000,    0x6000,
-otadata,    data, ota,      0xf000,    0x2000,
-phy_init,   data, phy,      0x11000,   0x1000,
-ota_0,      app,  ota_0,    0x20000,   0x180000,
-ota_1,      app,  ota_1,    0x1a0000,  0x180000,
+#
+# Les 5 premieres partitions (nvs .. ota_1) sont strictement celles de S15 (invariant) :
+# l'OTA Agent n'en ecrit que ota_0/ota_1/otadata. Les 3 partitions Workload sont
+# AJOUTEES apres ota_1, avec le sous-type `undefined` (le seul sous-type data
+# inconnu du parseur esp-bootloader-esp-idf qui ne fasse pas paniquer l'Agent) ;
+# elles sont retrouvees par NOM (wl_meta / workload_a / workload_b). Voir
+# docs/esp32-workload-layout.md dans iobewi.
+#
+#   wl_meta    : 2 secteurs de 4 KiB = les 2 copies OTM2 (un secteur chacune)
+#   workload_a/b : 0x5E0000 (5,875 MiB) chacune, alignees 64 KiB
+#   reserve libre : 0xEF0000 .. 0x1000000 (1,06 MiB) pour de futures partitions systeme
+#
+# Name,     Type, SubType,   Offset,    Size,      Flags
+nvs,        data, nvs,       0x9000,    0x6000,
+otadata,    data, ota,       0xf000,    0x2000,
+phy_init,   data, phy,       0x11000,   0x1000,
+ota_0,      app,  ota_0,     0x20000,   0x180000,
+ota_1,      app,  ota_1,     0x1a0000,  0x180000,
+wl_meta,    data, undefined, 0x320000,  0x2000,
+workload_a, data, undefined, 0x330000,  0x5E0000,
+workload_b, data, undefined, 0x910000,  0x5E0000,

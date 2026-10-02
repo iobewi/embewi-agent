@@ -17,3 +17,4 @@ pub mod supervisor;
 pub use iobewi_indicator::Status;
 pub use iobewi_ntp as time;
 pub mod wifi;
+pub mod workload;

@@ -174,6 +174,10 @@ async fn main(spawner: Spawner) -> ! {
     let boot_runtime = iobewi_esp_ota::service::EspBootRuntime { flash, nvs: config_backend };
     let boot_reset = EspBootReset;
 
+    // Workload storage capability (S16): from the partition table, by name. Selection
+    // state only; nothing is loaded or executed, and there is no HTTP surface for it.
+    let workload_storage = embewi_agent_esp::workload::init(flash).await;
+
     let hardware_config = config_manager
         .claim("hardware", hardware::CONFIG_BUDGET)
         .expect("NVS capacity insufficient for hardware config");
@@ -342,6 +346,14 @@ async fn main(spawner: Spawner) -> ! {
     // From here on the runtime is allowed to expose its administrative
     // surface. The HTTP module itself has no port-80 fallback.
     let tls = tls::init(embewi_agent_esp::time::now);
+
+    // S16 hardware gate only (feature `workload-selftest`, never in production images).
+    #[cfg(feature = "workload-selftest")]
+    if let Some(storage) = workload_storage {
+        spawner.spawn(embewi_agent_esp::workload::selftest::run(flash, storage, agent_config).unwrap());
+    }
+    #[cfg(not(feature = "workload-selftest"))]
+    let _ = workload_storage;
 
     let reboot = embewi_agent_esp::esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
     let mut supervisor = embewi_agent_esp::supervisor::ApplicationSupervisor::new(
