@@ -160,7 +160,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Only after the durable identity has been re-read and validated do we
     // initialize the networking/provisioning machinery.
-    let reboot = iobewi_esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
+    let reboot = embewi_agent_esp::esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
     let mut supervisor = embewi_agent_esp::supervisor::ProvisioningSupervisor::new(
         spawner,
         reboot,

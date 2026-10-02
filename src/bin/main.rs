@@ -278,7 +278,7 @@ async fn main(spawner: Spawner) -> ! {
     // surface. The HTTP module itself has no port-80 fallback.
     let tls = tls::init(embewi_agent_esp::time::now);
 
-    let reboot = iobewi_esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
+    let reboot = embewi_agent_esp::esp_reboot::EspReboot::new(peripherals.LPWR, spawner);
     let mut supervisor = embewi_agent_esp::supervisor::ApplicationSupervisor::new(
         spawner,
         reboot,

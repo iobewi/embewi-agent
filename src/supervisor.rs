@@ -9,7 +9,7 @@ use embassy_net::Stack;
 use iobewi_config_space::ConfigSpace;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_esp_flash::SharedFlash;
-use iobewi_esp_reboot::EspReboot;
+use crate::esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 
 use crate::composition::tasks;

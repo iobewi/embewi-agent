@@ -8,7 +8,7 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_esp_https::EspTlsListener;
 use iobewi_esp_indicator::EspStatusIndicator;
-use iobewi_esp_reboot::EspReboot;
+use crate::esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
 use static_cell::StaticCell;
 
