@@ -34,6 +34,7 @@ pub(crate) const API_PREFIX: &str = "/v1alpha1";
 pub async fn serve<L, R, TB, O, H, B, M, OM, I, AB, APPB, RB, OB>(
     listener: &mut L,
     ota_backend: O,
+    workload: &'static crate::workload::WorkloadService,
     storage: &'static H,
     agent_config: &'static agent::AgentConfigSpace<AB>,
     app_config: &'static ConfigSpace<APPB>,
@@ -189,6 +190,13 @@ where
         .nest("/ota", iobewi_ota_http::routes(
             ota_backend,
             reboot,
+        ))
+        // Workload OTA: its own namespace (the Agent's /ota/* keeps meaning the Agent),
+        // the same Bearer policy, and no supervisor: activation is refused, never faked.
+        .nest("/workload/ota", iobewi_workload_ota_http::routes(
+            workload,
+            crate::workload::WorkloadAuth { agent_config },
+            iobewi_workload_ota_http::NoSupervisor,
         ))
         // The TLS service owns authentication and the wire contract; the
         // application only mounts its routes on the shared HTTPS server and

@@ -92,6 +92,7 @@ pub(crate) async fn run_http_api(
     tls_config: &'static crate::esp_tls::TlsConfigSpace<NvsConfigBackend>,
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
+    workload: &'static crate::workload::WorkloadService,
     reboot: EspReboot,
     tls: crate::esp_tls::TlsReferenceStatic,
 ) -> ! {
@@ -111,6 +112,7 @@ pub(crate) async fn run_http_api(
     crate::http::api::serve(
         &mut listener,
         ota_backend,
+        workload,
         nvs_backend,
         agent_config,
         app_config,

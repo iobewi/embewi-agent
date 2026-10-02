@@ -13,6 +13,7 @@ jobs:
           toolchain: "1.88.0"
       - run: bash -n scripts/test-api.sh
       - run: bash -n scripts/build-boot.sh
+      - run: bash -n scripts/test-workload-ota.sh
       - run: bash -n scripts/build-iobewi-esp-bootloader.sh
       - name: Partition tables (S3 16 MiB with Workload, C3 4 MiB reference)
         run: |

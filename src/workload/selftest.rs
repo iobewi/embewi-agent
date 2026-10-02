@@ -17,10 +17,10 @@ use core::cell::Cell;
 
 use embassy_futures::join::join;
 use embassy_time::{Duration, Instant, Timer};
-use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_workload::engine::machine::{Prepared, Recovery, WorkloadActivator};
 use iobewi_esp_workload::model::{ArtifactDescriptor, RuntimeApi, Side, UpdateRequest, WorkloadSupervisor};
 use iobewi_esp_workload::EspWorkloadStorage;
+use crate::workload::WorkloadService;
 use iobewi_esp_config_space::NvsConfigBackend;
 use iobewi_ota::{Committed, Digest};
 use sha2::{Digest as _, Sha256};
@@ -89,7 +89,6 @@ fn request(version: &str, seed: u32, size: u32) -> UpdateRequest {
 
 /// Streams the pattern into the prepared slot; returns the verified result and the elapsed ms.
 async fn write_pattern(
-    flash: &'static SharedFlash,
     storage: &EspWorkloadStorage,
     prepared: &Prepared,
     seed: u32,
@@ -103,14 +102,14 @@ async fn write_pattern(
     while left > 0 {
         let take = left.min(CHUNK);
         pattern.fill(&mut buf[..take]);
-        if !writer.append(flash, &buf[..take]).await {
+        if !writer.append(storage.access(), &buf[..take]).await {
             log::error!("selftest: slot write failed at {} B", size as usize - left);
             return None;
         }
         left -= take;
         Timer::after(Duration::from_millis(0)).await; // yield between chunks
     }
-    match writer.finish(flash).await {
+    match writer.finish(storage.access()).await {
         Ok(committed) => Some((committed, started.elapsed().as_millis())),
         Err(e) => {
             log::error!("selftest: slot finish failed: {e:?}");
@@ -122,7 +121,6 @@ async fn write_pattern(
 /// ConfigSpace + OTM2 reads while the flash is busy; reports progress and the
 /// worst single-operation latency (a hang would show as zero progress).
 async fn load(
-    flash: &'static SharedFlash,
     storage: &EspWorkloadStorage,
     config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
     stop: &Cell<bool>,
@@ -133,7 +131,7 @@ async fn load(
         if config.load().await.is_ok() {
             config_ok += 1;
         }
-        if storage.recover(flash).await.is_ok() {
+        if storage.recover().await.is_ok() {
             meta_ok += 1;
         }
         worst_ms = worst_ms.max(t.elapsed().as_millis());
@@ -150,13 +148,13 @@ async fn reset(reason: &str) -> ! {
 
 #[embassy_executor::task]
 pub async fn run(
-    flash: &'static SharedFlash,
-    storage: EspWorkloadStorage,
+    service: &'static WorkloadService,
     config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
 ) {
     // Let Wi-Fi/services settle: the test competes with them for the flash on purpose.
     Timer::after(Duration::from_secs(8)).await;
-    let state = match storage.recover(flash).await {
+    let Ok(storage) = service.storage() else { return };
+    let state = match storage.recover().await {
         Ok(state) => state,
         Err(e) => {
             log::error!("selftest: FAIL recover: {e:?}");
@@ -166,28 +164,27 @@ pub async fn run(
     log::info!("selftest: start, otm2 recovery = {state:?}");
 
     match state {
-        Recovery::NoWorkload => phase1(flash, &storage, config).await,
-        Recovery::Valid(Side::A) => phase2(flash, &storage).await,
-        Recovery::Staged { active: Some(Side::A), candidate: Side::B } => phase3(flash, &storage).await,
+        Recovery::NoWorkload => phase1(storage, config).await,
+        Recovery::Valid(Side::A) => phase2(storage).await,
+        Recovery::Staged { active: Some(Side::A), candidate: Side::B } => phase3(storage).await,
         other => log::error!("selftest: FAIL unexpected state {other:?}"),
     }
 }
 
 async fn phase1(
-    flash: &'static SharedFlash,
     storage: &EspWorkloadStorage,
     config: &'static crate::agent::AgentConfigSpace<NvsConfigBackend>,
 ) {
     // Perf: erase a whole slot (maintenance path), for an order of magnitude.
     let t = Instant::now();
-    if storage.erase_slot(flash, Side::B).await.is_err() {
+    if storage.erase_slot(Side::B).await.is_err() {
         log::error!("selftest: FAIL erase slot B");
         return;
     }
     log::info!("selftest: perf erase whole slot ({} B): {} ms", storage.layout().max_artifact_size(), t.elapsed().as_millis());
 
     // Write slot A (1 MiB) while ConfigSpace/OTM2 reads compete for the flash lock.
-    let prepared = match storage.prepare(flash, &request("selftest-1", P1_SEED, P1_SIZE)).await {
+    let prepared = match storage.prepare(&request("selftest-1", P1_SEED, P1_SIZE)).await {
         Ok(p) => p,
         Err(e) => {
             log::error!("selftest: FAIL prepare A: {e:?}");
@@ -197,11 +194,11 @@ async fn phase1(
     let stop = Cell::new(false);
     let (written, (config_ok, meta_ok, worst_ms)) = join(
         async {
-            let result = write_pattern(flash, storage, &prepared, P1_SEED, P1_SIZE).await;
+            let result = write_pattern(storage, &prepared, P1_SEED, P1_SIZE).await;
             stop.set(true);
             result
         },
-        load(flash, storage, config, &stop),
+        load(storage, config, &stop),
     )
     .await;
     let Some((committed, ms)) = written else { return };
@@ -210,21 +207,21 @@ async fn phase1(
         log::error!("selftest: FAIL no progress under flash contention (possible starvation)");
         return;
     }
-    if let Err(e) = storage.commit_staged(flash, &prepared, &committed).await {
+    if let Err(e) = storage.commit_staged(&prepared, &committed).await {
         log::error!("selftest: FAIL commit_staged A: {e:?}");
         return;
     }
-    if storage.activate(flash, &mut Noop, RuntimeApi::new(1, 0)).await.is_err() || storage.confirm(flash).await.is_err() {
+    if storage.activate(&mut Noop, RuntimeApi::new(1, 0)).await.is_err() || storage.confirm().await.is_err() {
         log::error!("selftest: FAIL activate/confirm A");
         return;
     }
     log::info!("selftest: slot A written, staged, activated (stub supervisor), confirmed -> Valid(A)");
-    phase2(flash, storage).await
+    phase2(storage).await
 }
 
-async fn phase2(flash: &'static SharedFlash, storage: &EspWorkloadStorage) {
+async fn phase2(storage: &EspWorkloadStorage) {
     let want = expected_digest(P2_SEED, P2_SIZE);
-    let prepared = match storage.prepare(flash, &request("selftest-2", P2_SEED, P2_SIZE)).await {
+    let prepared = match storage.prepare(&request("selftest-2", P2_SEED, P2_SIZE)).await {
         Ok(p) => p,
         Err(e) => {
             log::error!("selftest: FAIL prepare B: {e:?}");
@@ -232,11 +229,11 @@ async fn phase2(flash: &'static SharedFlash, storage: &EspWorkloadStorage) {
         }
     };
     // Is slot B already holding the complete 4 MiB artifact (the cut happened last boot)?
-    if matches!(storage.read_digest(flash, prepared.slot, P2_SIZE).await, Ok(d) if d == want) {
+    if matches!(storage.read_digest(prepared.slot, P2_SIZE).await, Ok(d) if d == want) {
         log::info!("selftest: powerloss recovery OK: slot B holds a complete artifact but the selection is still Valid(A) and nothing is staged");
         // The artifact was verified by an independent SHA-256 read-back, so it may be staged now.
         let committed = Committed { size: u64::from(P2_SIZE), digest: Digest(want) };
-        if let Err(e) = storage.commit_staged(flash, &prepared, &committed).await {
+        if let Err(e) = storage.commit_staged(&prepared, &committed).await {
             log::error!("selftest: FAIL commit_staged B: {e:?}");
             return;
         }
@@ -245,20 +242,20 @@ async fn phase2(flash: &'static SharedFlash, storage: &EspWorkloadStorage) {
     }
     // First time: write the 4 MiB artifact, then lose power before staging it.
     log::info!("selftest: writing 4 MiB to slot B, then cutting power before the staged commit");
-    let Some((_committed, ms)) = write_pattern(flash, storage, &prepared, P2_SEED, P2_SIZE).await else { return };
+    let Some((_committed, ms)) = write_pattern(storage, &prepared, P2_SEED, P2_SIZE).await else { return };
     log::info!("selftest: perf write 4 MiB to slot B: {ms} ms (erase-ahead included)");
     reset("power cut between artifact complete and staged commit").await
 }
 
-async fn phase3(flash: &'static SharedFlash, storage: &EspWorkloadStorage) {
-    let Ok(Some(record)) = storage.record(flash).await else {
+async fn phase3(storage: &EspWorkloadStorage) {
+    let Ok(Some(record)) = storage.record().await else {
         log::error!("selftest: FAIL no OTM2 record");
         return;
     };
     let a = record.meta[0];
     let b = record.meta[1];
-    let a_ok = matches!(storage.read_digest(flash, Side::A, a.size).await, Ok(d) if d == expected_digest(P1_SEED, P1_SIZE) && d == a.digest);
-    let b_ok = matches!(storage.read_digest(flash, Side::B, b.size).await, Ok(d) if d == expected_digest(P2_SEED, P2_SIZE) && d == b.digest);
+    let a_ok = matches!(storage.read_digest(Side::A, a.size).await, Ok(d) if d == expected_digest(P1_SEED, P1_SIZE) && d == a.digest);
+    let b_ok = matches!(storage.read_digest(Side::B, b.size).await, Ok(d) if d == expected_digest(P2_SEED, P2_SIZE) && d == b.digest);
     log::info!(
         "selftest: after reset: state {:?} active {:?} candidate {:?}; slot A digest {} slot B digest {}; requires {}.{}",
         record.state, record.active, record.candidate,

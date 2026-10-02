@@ -33,6 +33,7 @@ pub struct ApplicationSupervisor {
     runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
     ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
     flash: &'static SharedFlash,
+    workload: &'static crate::workload::WorkloadService,
     nvs_backend: &'static NvsConfigBackend,
     diagnostics: EspRuntimeDiagnostics,
     ip_services_started: bool,
@@ -50,6 +51,7 @@ impl ApplicationSupervisor {
         runtime_config: &'static crate::runtime_config::RuntimeConfig<NvsConfigBackend>,
         ota_config: &'static crate::ota::OtaConfigSpace<NvsConfigBackend>,
         flash: &'static SharedFlash,
+        workload: &'static crate::workload::WorkloadService,
         nvs_backend: &'static NvsConfigBackend,
         diagnostics: EspRuntimeDiagnostics,
     ) -> Self {
@@ -63,6 +65,7 @@ impl ApplicationSupervisor {
             runtime_config,
             ota_config,
             flash,
+            workload,
             nvs_backend,
             diagnostics,
             ip_services_started: false,
@@ -86,6 +89,7 @@ impl ApplicationSupervisor {
                 self.tls_config,
                 self.runtime_config,
                 self.ota_config,
+                self.workload,
                 self.reboot.clone(),
                 self.tls,
             ).unwrap());
