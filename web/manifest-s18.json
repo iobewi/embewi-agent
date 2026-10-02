@@ -1,0 +1,20 @@
+{
+  "name": "embewi S18 (Workload Supervisor, probe)",
+  "version": "0.1.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "firmware/esp32s3-s18/firmware-s18.bin",
+          "offset": 0
+        },
+        {
+          "path": "firmware/esp32s3-s18/agent-s18.bin",
+          "offset": 1703936
+        }
+      ]
+    }
+  ]
+}

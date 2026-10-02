@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Embewi Agent — Installation</title>
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Embewi Agent</h1>
+            <p class="subtitle">Installation du firmware</p>
+        </header>
+
+        <div class="card">
+            <p>
+                Flashe le firmware directement depuis le navigateur (Chrome / Edge,
+                via Web Serial) en connectant l'ESP32 en USB.
+            </p>
+
+            <esp-web-install-button manifest="manifest-s18.json">
+                <button class="primary" slot="activate">Installer le firmware</button>
+                <span slot="unsupported">
+                    Ton navigateur ne supporte pas Web Serial — utilise Chrome ou Edge.
+                </span>
+                <span slot="not-allowed">
+                    Cette page doit être servie en HTTPS (ou localhost) pour installer le firmware.
+                </span>
+            </esp-web-install-button>
+        </div>
+
+        <p class="message">
+            Une fois le Wi-Fi configuré, un bouton « Visit Device » apparaît dans
+            la fenêtre d'installation : il ouvre la page de configuration
+            matérielle (broche de la LED de statut) servie directement par
+            l'appareil sur son réseau local.
+        </p>
+
+        <p class="hint">
+            Servi localement par le conteneur de dev via
+            <code>http-server web -p 8080</code>.
+        </p>
+    </main>
+</body>
+</html>
