@@ -11,6 +11,15 @@
 #   scripts/test-workload-ota.sh <url> <token> compat <file>     # stage un Workload exigeant une API future -> activate refusé (409)
 #   scripts/test-workload-ota.sh <url> <token> activate <file>   # POST /activate (S17 : 501 supervisor_unavailable attendu)
 #
+#   (S18, build `workload-supervisor-probe`)
+#   scripts/test-workload-ota.sh <url> <token> mkprobe <out> [fault=none|fail-start|freeze|health-fail|reset-on-start|reset-on-stop] [period_ms=500] [size=65536] [salt]
+#   scripts/test-workload-ota.sh <url> <token> runtime           # etat OTM2 + execution (running/health)
+#   scripts/test-workload-ota.sh <url> <token> sup-activate <file>  # activate -> pending_confirmation, runtime reellement lance
+#   scripts/test-workload-ota.sh <url> <token> sup-confirm       # confirm -> valid (refuse si non Healthy)
+#   scripts/test-workload-ota.sh <url> <token> sup-rollback      # rollback manuel -> precedent Valid (ou Empty)
+#   scripts/test-workload-ota.sh <url> <token> sup-start-fault <file>  # artefact fail-start: activate -> 500 rolled_back, ancien relance
+#   scripts/test-workload-ota.sh <url> <token> sup-health-fault <file> # artefact health-fail: activate OK, confirm -> 409 workload_unhealthy
+#
 # `push*`, `resume`, `compat` ÉCRIVENT dans le slot Workload inactif (plusieurs MiB selon <file>) :
 # ils ne font donc volontairement pas partie de `safe`.
 set -euo pipefail
@@ -75,7 +84,7 @@ run_status() {
 
 run_safe() {
     echo "== auth (sans/mauvais Bearer -> 401) =="
-    for m in "GET status" "POST prepare" "POST activate" "PUT write"; do
+    for m in "GET status" "POST prepare" "POST activate" "POST confirm" "POST rollback" "PUT write"; do
         set -- $m
         check "$1 /$2 sans token" "$(code -X "$1" -d '{}' "$BASE/$2")" "401"
         check "$1 /$2 mauvais token" "$(code -X "$1" -H 'Authorization: Bearer nope' -d '{}' "$BASE/$2")" "401"
@@ -192,7 +201,111 @@ run_activate() {
     check "l'état reste staged" "$(jget "$(wl_get /status)" state)" "staged"
 }
 
+run_mkprobe() {
+    local out="${1:?out}" fault="${2:-none}" period="${3:-500}" size="${4:-65536}" salt="${5:-$RANDOM}"
+    python3 - "$out" "$fault" "$period" "$size" "$salt" <<'PY'
+import sys, struct, hashlib
+out, fault, period, size, salt = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+codes = {"none":0,"fail-start":1,"freeze":2,"health-fail":3,"reset-on-start":4,"reset-on-stop":5}
+head = b"S18PROBE" + bytes([1, codes[fault]]) + struct.pack("<H", period) + b"\0\0\0\0"
+body = b""; n = 0
+while len(head) + len(body) < size:
+    body += hashlib.sha256(f"{salt}:{n}".encode()).digest(); n += 1
+open(out, "wb").write((head + body)[:size])
+PY
+    echo "$out: fault=$fault period=${period}ms size=$(stat -c%s "$out") $(digest_of "$out")"
+}
+
+run_runtime() {
+    local s; s=$(wl_get /status)
+    echo "state=$(jget "$s" state) active=$(jget "$s" active.version) candidate=$(jget "$s" candidate.version) previous=$(jget "$s" previous_valid.version)"
+    echo "runtime: supervised=$(jget "$s" runtime.supervised) running=$(jget "$s" runtime.running) health=$(jget "$s" runtime.health) artifact=$(jget "$s" runtime.artifact)"
+}
+
+wait_health() { # expected, tries
+    local want="$1" n="${2:-20}" h
+    while [[ "$n" -gt 0 ]]; do
+        h=$(jget "$(wl_get /status)" runtime.health); [[ "$h" == "$want" ]] && { echo "$h"; return 0; }
+        sleep 1; n=$((n - 1))
+    done
+    echo "$h"; return 1
+}
+
+run_sup_activate() {
+    local file="${1:?file}"
+    local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
+    echo "activate -> $(status_of "$r") $(body_of "$r")"
+    check "activate -> 200" "$(status_of "$r")" "200"
+    check "status == pending_confirmation" "$(jget "$(body_of "$r")" status)" "pending_confirmation"
+    local s; s=$(wl_get /status)
+    check "OTM2 state == pending_confirmation" "$(jget "$s" state)" "pending_confirmation"
+    check "le candidat tourne vraiment" "$(jget "$s" runtime.running)" "True"
+    check "runtime.artifact == digest" "$(jget "$s" runtime.artifact)" "$(digest_of "$file")"
+    check "health Healthy" "$(wait_health Healthy 15)" "Healthy"
+}
+
+run_sup_confirm() {
+    local r; r=$(wl_post /confirm '{}')
+    echo "confirm -> $(status_of "$r") $(body_of "$r")"
+    check "confirm -> 200 valid" "$(status_of "$r")$(jget "$(body_of "$r")" status)" "200valid"
+    check "OTM2 state == valid" "$(jget "$(wl_get /status)" state)" "valid"
+}
+
+run_sup_rollback() {
+    local before; before=$(wl_get /status)
+    local r; r=$(wl_post /rollback '{}')
+    echo "rollback -> $(status_of "$r") $(body_of "$r")"
+    check "rollback -> 200 rolled_back" "$(status_of "$r")$(jget "$(body_of "$r")" status)" "200rolled_back"
+    local s; s=$(wl_get /status)
+    local want; want=$(jget "$before" previous_valid.digest)
+    if [[ -n "$want" && "$want" != "None" ]]; then
+        check "state == valid (precedent)" "$(jget "$s" state)" "valid"
+        check "le precedent tourne vraiment" "$(jget "$s" runtime.artifact)" "$want"
+    else
+        check "state == empty" "$(jget "$s" state)" "empty"
+        check "plus rien ne tourne" "$(jget "$s" runtime.running)" "False"
+    fi
+}
+
+run_sup_start_fault() {
+    local file="${1:?file}" before; before=$(wl_get /status)
+    local old; old=$(jget "$before" runtime.artifact)
+    local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
+    echo "activate -> $(status_of "$r") $(body_of "$r")"
+    check "echec de demarrage -> 500" "$(status_of "$r")" "500"
+    check "error == activation_failed" "$(jget "$(body_of "$r")" error)" "activation_failed"
+    check "rolled_back == True" "$(jget "$(body_of "$r")" rolled_back)" "True"
+    local s; s=$(wl_get /status)
+    check "etat revenu a valid" "$(jget "$s" state)" "valid"
+    check "l'ancien Workload tourne a nouveau" "$(jget "$s" runtime.artifact)" "$old"
+}
+
+run_sup_health_fault() {
+    local file="${1:?file}"
+    run_sup_activate_nohealth "$file"
+    local r; r=$(wl_post /confirm '{}')
+    echo "confirm -> $(status_of "$r") $(body_of "$r")"
+    check "confirm refuse -> 409" "$(status_of "$r")" "409"
+    check "error == workload_unhealthy" "$(jget "$(body_of "$r")" error)" "workload_unhealthy"
+    check "toujours pending_confirmation" "$(jget "$(wl_get /status)" state)" "pending_confirmation"
+}
+
+run_sup_activate_nohealth() {
+    local file="${1:?file}"
+    local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
+    echo "activate -> $(status_of "$r") $(body_of "$r")"
+    check "activate -> 200" "$(status_of "$r")" "200"
+    check "runtime.health == Unhealthy" "$(wait_health Unhealthy 20)" "Unhealthy"
+}
+
 case "$MODE" in
+    mkprobe) shift 3; run_mkprobe "$@" ;;
+    runtime) run_runtime ;;
+    sup-activate) run_sup_activate "${4:-}" ;;
+    sup-confirm) run_sup_confirm ;;
+    sup-rollback) run_sup_rollback ;;
+    sup-start-fault) run_sup_start_fault "${4:-}" ;;
+    sup-health-fault) run_sup_health_fault "${4:-}" ;;
     status) run_status ;;
     safe) run_safe ;;
     push) shift 3; run_push "$@" ;;
