@@ -11,7 +11,7 @@ use alloc::string::String;
 use picoserve::response::StatusCode;
 use iobewi_http_server::routing::{get, post};
 use iobewi_http_server::HttpRouter;
-use iobewi_ota::http::RebootPort;
+use iobewi_ota_http::RebootPort;
 
 use crate::agent;
 use iobewi_config_space::{ConfigBackend, ConfigSpace};
@@ -50,7 +50,7 @@ where
     L: iobewi_net_tls_core::TlsListener,
     R: RebootPort + Clone + 'static,
     TB: iobewi_tls_service::http::ProvisioningBackend + Clone + 'static,
-    O: iobewi_ota::http::ControlBackend + iobewi_ota::http::WriteBackend + Clone + 'static,
+    O: iobewi_ota_http::ControlBackend + iobewi_ota_http::WriteBackend + Clone + 'static,
     H: agent::StorageHealth,
     B: agent::BootInfoSource,
     M: iobewi_device::DeviceMetadata,
@@ -186,7 +186,7 @@ where
         // OTA owns its relative routes. EmBewi supplies only the injected
         // platform backend and the same reboot capability used by /reboot --
         // this module never constructs the backend itself, only mounts it.
-        .nest("/ota", iobewi_ota::http::routes(
+        .nest("/ota", iobewi_ota_http::routes(
             ota_backend,
             reboot,
         ))

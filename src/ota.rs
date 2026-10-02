@@ -1,9 +1,9 @@
 //! Embewi's OTA adapter (contrat §3/§4/§6): the Core streams a raw `.bin`
 //! into whichever `ota_0`/`ota_1` slot isn't currently booted.
 //!
-//! IOBEWI OTA owns the transaction state machine and the OTA metadata schema.
-//! `iobewi-esp-ota-boot` owns the EWBT boot state machine and ESP image
-//! validation. `iobewi-esp-ota` locates ESP partitions, executes EWBT flash
+//! IOBEWI firmware update (`iobewi-ota`) owns the transaction state machine and
+//! the OTA metadata schema. `iobewi-firmware-boot` owns the EWBT boot state
+//! machine and `iobewi-firmware-image` the ESP image validation. `iobewi-esp-ota` locates ESP partitions, executes EWBT flash
 //! writes with readback and provides the NOR-flash artifact backend. This
 //! module is the remaining application-facing facade over that state: the
 //! bootstrap lifecycle, read-only OTA metadata, and the boot-time self-check

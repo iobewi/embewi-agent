@@ -13,7 +13,7 @@ use picoserve::extract::Form;
 use picoserve::response::{File, Response, StatusCode};
 use iobewi_http_server::routing::{get, get_service};
 use iobewi_http_server::HttpRouter;
-use iobewi_ota::http::RebootPort;
+use iobewi_ota_http::RebootPort;
 
 use crate::agent;
 use crate::ota::BootstrapState;

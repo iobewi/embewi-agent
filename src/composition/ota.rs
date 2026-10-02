@@ -6,7 +6,7 @@ use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::service::{EspBoot, EspUploadWriter};
 use iobewi_esp_ota::EspOtaPlatformMetadata;
 use iobewi_ota::config_space::ConfigSpaceMetadataStore;
-use iobewi_ota::http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
+use iobewi_ota_http::{ActivateFailure, BeginError, ControlBackend, PrepareRequest, PrepareResponse, WriteBackend, WriteFinishError, WriteFinishOk};
 use iobewi_ota::metadata::SessionParams;
 use iobewi_ota::OtaPlatformMetadata;
 
