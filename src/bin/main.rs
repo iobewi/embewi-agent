@@ -178,7 +178,12 @@ async fn main(spawner: Spawner) -> ! {
 
     // Which GPIO (if any) drives the status LED is board-specific and now
     // belongs to the hardware ConfigSpace rather than application-owned NVS.
-    if let Some(gpio) = hardware::led_gpio(hardware_config).await {
+    let led_gpio = hardware::led_gpio(hardware_config).await;
+    match led_gpio {
+        Some(gpio) => log::info!("hardware: status LED configured on GPIO{gpio}"),
+        None => log::info!("hardware: no status LED configured"),
+    }
+    if let Some(gpio) = led_gpio {
         let led_pin = match gpio {
             0 => peripherals.GPIO0.degrade(),
             1 => peripherals.GPIO1.degrade(),

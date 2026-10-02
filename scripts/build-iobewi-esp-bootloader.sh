@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # The bootloader now lives in the iobewi monorepo (provisional subtree
 # iobewi-esp/); same revision as the iobewi crates pinned in Cargo.toml.
 IOBEWI_REPO="https://github.com/iobewi/iobewi"
-IOBEWI_REV="2a201af0597de4496aff930cd8f0ef5737b3ea2b"
+IOBEWI_REV="1598cedd287cc2c0424a0a93712632d7e41fbf8e"
 CHECKOUT="$ROOT/target/iobewi-esp-bootloader-src"
 CHIP=esp32s3
 TARGET=xtensa-esp32s3-none-elf
