@@ -6,7 +6,7 @@ use iobewi_esp_device::{EspDeviceIdentity, EspDeviceMetadata};
 use iobewi_esp_entropy::EspEntropySource;
 use iobewi_esp_flash::SharedFlash;
 use iobewi_esp_ota::EspOtaPlatformMetadata;
-use iobewi_esp_https::EspTlsListener;
+use iobewi_esp_tls::EspTlsListener;
 use iobewi_esp_indicator::EspStatusIndicator;
 use crate::esp_reboot::EspReboot;
 use iobewi_esp_runtime::EspRuntimeDiagnostics;
