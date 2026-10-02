@@ -202,6 +202,17 @@ async fn main(spawner: Spawner) -> ! {
             19 => peripherals.GPIO19.degrade(),
             20 => peripherals.GPIO20.degrade(),
             21 => peripherals.GPIO21.degrade(),
+            38 => peripherals.GPIO38.degrade(),
+            39 => peripherals.GPIO39.degrade(),
+            40 => peripherals.GPIO40.degrade(),
+            41 => peripherals.GPIO41.degrade(),
+            42 => peripherals.GPIO42.degrade(),
+            43 => peripherals.GPIO43.degrade(),
+            44 => peripherals.GPIO44.degrade(),
+            45 => peripherals.GPIO45.degrade(),
+            46 => peripherals.GPIO46.degrade(),
+            47 => peripherals.GPIO47.degrade(),
+            48 => peripherals.GPIO48.degrade(),
             other => panic!("saved status LED GPIO {other} is out of range for this chip"),
         };
         spawner.spawn(led_task(peripherals.RMT, led_pin).unwrap());
