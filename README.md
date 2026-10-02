@@ -17,6 +17,31 @@ cible de non-régression ; le cœur indépendant du matériel n'a pas encore ét
 extrait. Le paquet et le binaire portent encore le nom historique
 `embewi-agent-esp` pendant cette migration.
 
+## Rôle de l'agent et modèle à deux OTA
+
+`embewi-agent` est l'**agent résident** du device : *runner* et *superviseur de
+workload*. Ce n'est ni l'application métier, ni un noyau de système
+d'exploitation au sens classique (pas de syscalls, de modes user/kernel, de
+MMU/MPU ni de modèle de processus). Vocabulaire officiel : **Agent** (cet
+agent) et **Workload** (l'application / Pod supervisé).
+
+Deux niveaux de mise à jour, tous deux ordonnés par `embewi-core` (qui nomme une
+cible logique et un artefact, jamais un slot A/B) :
+
+| | OTA Agent | OTA Workload |
+|---|---|---|
+| Cible | l'agent lui-même | le Pod / l'application supervisée |
+| Autorité d'activation | bootloader + métadonnées OTA Agent (reboot requis) | l'agent (pas de reboot de l'agent) |
+| Confirmation | après reboot + auto-contrôle de l'agent | après health/liveness du workload |
+| Rollback | le bootloader revient à l'agent précédent | l'agent relance le workload précédent |
+
+OTA Agent est implémenté aujourd'hui (OTM1, EWBT). OTA Workload, la supervision
+et le runtime des workloads sont des capacités futures ; ce dépôt n'en
+implémente aucune. Le modèle, ses machines d'état, la règle de compatibilité
+(API runtime fournie / requise) et la décision OTM1 / OTM2 sont décrits dans
+[`docs/dual-ota.md` d'iobewi](https://github.com/iobewi/iobewi/blob/migration/s14-dual-ota-model/docs/dual-ota.md)
+et exécutés par la crate portable `iobewi-update-model`.
+
 ## Architecture cible
 
 | Composant | Responsabilité |
