@@ -23,7 +23,8 @@ use embewi_agent_esp::hardware;
 use embewi_agent_esp::esp_tls as tls;
 use iobewi_config_space::{ConfigManager, ConfigSpace};
 use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
-use iobewi_esp_indicator::led_task;
+use iobewi_esp_indicator::{EspStatusIndicator, led_task};
+use iobewi_indicator::{Status, StatusTracker};
 use embewi_agent_esp::wifi::{self, WifiManager};
 use embewi_agent_esp::runtime_config;
 
@@ -45,6 +46,26 @@ impl embewi_agent_esp::ota::BootReset for EspBootReset {
 
     fn reset_now(&self) -> ! {
         iobewi_esp_ota::service::reset_now()
+    }
+}
+
+/// Agent lifecycle -> status indicator. This function (the runtime's `main`)
+/// is the only caller of `set()` in the agent image, so there is no
+/// arbitration to do: one owner, one tracker. Policy:
+///
+/// * `Booting`    -- initial state of every image.
+/// * `Connecting` -- the agent starts joining its saved network, and again
+///   whenever the network stack reports its configuration (link + DHCP)
+///   lost.
+/// * `Online`     -- Wi-Fi associated *and* DHCP configuration up (what
+///   `reconnect_saved` waits for), with the runtime services started. Not
+///   gated on a heartbeat: transient heartbeat/DNS/TLS errors do not change it.
+/// * `Failed`     -- the saved network could not be joined at boot. The
+///   runtime never retries on its own after that, so it needs the user.
+///   Priority: `Failed` (terminal) > `Connecting` > `Online`.
+fn indicate<I: iobewi_indicator::StatusIndicator>(tracker: &StatusTracker<'_, I>, next: Status) {
+    if let Some(previous) = tracker.set(next) {
+        log::info!("indicator: {previous:?} -> {next:?}");
     }
 }
 
@@ -309,13 +330,27 @@ async fn main(spawner: Spawner) -> ! {
         diagnostics,
     );
 
+    let status_led = EspStatusIndicator;
+    let status = StatusTracker::new(&status_led);
+
     let transport = iobewi_esp_wifi::WifiManager::new(peripherals.WIFI, spawner, wifi::network_resources());
     let mut wifi = WifiManager::new(transport, wifi_config);
-    if wifi.reconnect_saved().await {
-        if let Some(stack) = wifi.network_handle() {
-            supervisor.on_ip_ready(stack);
+    indicate(&status, Status::Connecting);
+    let stack = if wifi.reconnect_saved().await { wifi.network_handle() } else { None };
+    if let Some(stack) = stack {
+        supervisor.on_ip_ready(stack);
+        indicate(&status, Status::Online);
+
+        // Follow the stack's own link/DHCP events (no polling): configuration
+        // lost -> Connecting, configuration back -> Online.
+        loop {
+            stack.wait_config_down().await;
+            indicate(&status, Status::Connecting);
+            stack.wait_config_up().await;
+            indicate(&status, Status::Online);
         }
     }
+    indicate(&status, Status::Failed);
 
     // Runtime has no Improv/bootstrap service. If the saved network is
     // unavailable it remains offline and retries only according to the normal
