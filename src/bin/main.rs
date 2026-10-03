@@ -133,6 +133,10 @@ async fn main(spawner: Spawner) -> ! {
     // OTA cycle, concurrent admin+heartbeat+logs TLS, haven't all been
     // observed together yet), so this keeps a wide safety margin rather
     // than assuming the untested paths won't dig deeper.
+    // With native Workloads, half of the reclaimed area is the Workload region (fixed address).
+    #[cfg(feature = "workload-native")]
+    let workload_region_ok = embewi_agent_esp::workload::native_runtime::init_reclaimed_ram();
+    #[cfg(not(feature = "workload-native"))]
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 132 * 1024);
 
@@ -177,7 +181,15 @@ async fn main(spawner: Spawner) -> ! {
     // Workload OTA (S17): capability from the partition table (by name), OTM2 recovery,
     // and the HTTP service. Selection/staging only; nothing is loaded or executed and
     // activation is refused (no supervisor exists).
-    let (workload, workload_control) = embewi_agent_esp::workload::init(flash, spawner).await;
+    let (workload, workload_control) = embewi_agent_esp::workload::init(
+        flash,
+        spawner,
+        #[cfg(feature = "workload-native")]
+        esp_hal::system::CpuControl::new(peripherals.CPU_CTRL),
+        #[cfg(feature = "workload-native")]
+        workload_region_ok,
+    )
+    .await;
 
     let hardware_config = config_manager
         .claim("hardware", hardware::CONFIG_BUDGET)
@@ -359,8 +371,10 @@ async fn main(spawner: Spawner) -> ! {
 
     // Boot reconciliation of the Workload (offline: no Wi-Fi, no Core needed). Only
     // reached once the Agent itself is confirmed/staying.
-    #[cfg(feature = "workload-supervisor-probe")]
+    #[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
     spawner.spawn(embewi_agent_esp::workload::reconcile_task(workload_control).unwrap());
+    #[cfg(feature = "workload-native")]
+    spawner.spawn(embewi_agent_esp::workload::native_runtime::support_task(workload_control).unwrap());
 
     // From here on the runtime is allowed to expose its administrative
     // surface. The HTTP module itself has no port-80 fallback.

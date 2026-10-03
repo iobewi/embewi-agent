@@ -28,20 +28,28 @@ pub const RUNTIME_API: RuntimeApi = RuntimeApi::new(0, 9);
 
 pub type WorkloadService = WorkloadOtaService<EspFlashAccess>;
 
+#[cfg(all(feature = "workload-supervisor-probe", feature = "workload-native"))]
+compile_error!("workload-supervisor-probe and workload-native are two different runtimes: pick one");
+
 #[cfg(feature = "workload-supervisor-probe")]
 pub mod probe_runtime;
+#[cfg(feature = "workload-native")]
+pub mod native_runtime;
 
 #[cfg(feature = "workload-supervisor-probe")]
 pub type Supervisor =
     iobewi_esp_workload::engine::supervisor::WorkloadSupervisor<EspFlashAccess, probe_runtime::ProbeRuntime>;
+#[cfg(feature = "workload-native")]
+pub type Supervisor =
+    iobewi_esp_workload::engine::supervisor::WorkloadSupervisor<EspFlashAccess, native_runtime::Runtime>;
 /// What the HTTP routes call for activate/confirm/rollback.
-#[cfg(feature = "workload-supervisor-probe")]
+#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
 pub type Control = &'static Supervisor;
-#[cfg(not(feature = "workload-supervisor-probe"))]
+#[cfg(not(any(feature = "workload-supervisor-probe", feature = "workload-native")))]
 pub type Control = iobewi_workload_ota_http::NoSupervisor;
 
 static SERVICE: StaticCell<WorkloadService> = StaticCell::new();
-#[cfg(feature = "workload-supervisor-probe")]
+#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
 static SUPERVISOR: StaticCell<Supervisor> = StaticCell::new();
 
 /// Probes the partition table, builds the (single) Workload OTA service (and the
@@ -50,6 +58,8 @@ static SUPERVISOR: StaticCell<Supervisor> = StaticCell::new();
 pub async fn init(
     flash: &'static SharedFlash,
     #[cfg_attr(not(feature = "workload-supervisor-probe"), allow(unused_variables))] spawner: embassy_executor::Spawner,
+    #[cfg(feature = "workload-native")] cpu: esp_hal::system::CpuControl<'static>,
+    #[cfg(feature = "workload-native")] region_ok: bool,
 ) -> (&'static WorkloadService, Control) {
     let capability = probe(flash).await;
     match &capability {
@@ -81,7 +91,15 @@ pub async fn init(
             probe_runtime::ProbeRuntime::new(spawner),
         ))
     };
-    #[cfg(not(feature = "workload-supervisor-probe"))]
+    #[cfg(feature = "workload-native")]
+    let control: Control = {
+        log::warn!("workload: NATIVE runtime enabled (trusted native Workloads on the second core, not isolated)");
+        &*SUPERVISOR.init(iobewi_esp_workload::engine::supervisor::WorkloadSupervisor::new(
+            service,
+            native_runtime::new(cpu, RUNTIME_API, region_ok),
+        ))
+    };
+    #[cfg(not(any(feature = "workload-supervisor-probe", feature = "workload-native")))]
     let control: Control = iobewi_workload_ota_http::NoSupervisor;
     (service, control)
 }
@@ -98,7 +116,7 @@ pub async fn agent_can_run_active_workload(service: &WorkloadService) -> bool {
 
 /// Boot-time reconciliation: OTM2 state -> running Workload (offline: needs no Wi-Fi,
 /// no Core). Runs once, right after the Agent decided to stay.
-#[cfg(feature = "workload-supervisor-probe")]
+#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
 #[embassy_executor::task]
 pub async fn reconcile_task(supervisor: &'static Supervisor) {
     let outcome = supervisor.reconcile_boot().await;
