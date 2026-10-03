@@ -9,7 +9,7 @@ use core::mem::MaybeUninit;
 
 use embassy_time::{Duration, Timer};
 use iobewi_esp_workload::model::RuntimeApi;
-use iobewi_esp_workload::native::{EspNativeBackend, NativeRuntime, drain_logs};
+use iobewi_esp_workload::native::{EspNativeBackend, NativeRuntime, drain_logs, take_dropped_logs};
 
 pub type Runtime = NativeRuntime<EspNativeBackend>;
 
@@ -53,7 +53,14 @@ pub fn new(cpu: esp_hal::system::CpuControl<'static>, provides: RuntimeApi, regi
 /// Agent's logger, which already streams to the Core when connected.
 #[embassy_executor::task]
 pub async fn support_task(supervisor: &'static super::Supervisor) {
+    // The logger writes synchronously (USB-Serial-JTAG): forwarding must be rate-limited or a
+    // chatty Workload would monopolise the Agent's executor. 2 lines per 100 ms (20/s); the
+    // rest stays in the ring, which drops when full, and the drops are reported at most once
+    // a second.
+    const LINES_PER_TICK: usize = 2;
     let mut forced_seen = 0u32;
+    let mut dropped_total = 0u32;
+    let mut ticks = 0u32;
     loop {
         supervisor.runtime().sample();
         let forced = supervisor.runtime().forced_stops();
@@ -61,7 +68,7 @@ pub async fn support_task(supervisor: &'static super::Supervisor) {
             forced_seen = forced;
             log::warn!("workload: StopTimeout, the Workload ignored the stop request and was halted ({forced} so far)");
         }
-        drain_logs(24, |level, text| {
+        drain_logs(LINES_PER_TICK, |level, text| {
             let text = core::str::from_utf8(text).unwrap_or("<non-utf8>");
             match level {
                 1 => log::error!("workload: {text}"),
@@ -70,6 +77,12 @@ pub async fn support_task(supervisor: &'static super::Supervisor) {
                 _ => log::info!("workload: {text}"),
             }
         });
+        dropped_total = dropped_total.saturating_add(take_dropped_logs());
+        ticks += 1;
+        if ticks % 10 == 0 && dropped_total > 0 {
+            log::warn!("workload: {dropped_total} log lines dropped (rate-limited)");
+            dropped_total = 0;
+        }
         Timer::after(Duration::from_millis(100)).await;
     }
 }
