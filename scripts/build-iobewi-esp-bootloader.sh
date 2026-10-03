@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # The bootloader lives in the iobewi monorepo (bootloader/esp); same revision as the iobewi crates pinned in Cargo.toml.
 IOBEWI_REPO="https://github.com/iobewi/iobewi"
-IOBEWI_REV="f52f577546c005f4773b1b6e6a700ba5004b57da"
+IOBEWI_REV="04d210dc3da63943b83297b123d86a1652c33392"
 CHECKOUT="$ROOT/target/iobewi-esp-bootloader-src"
 CHIP=esp32s3
 TARGET=xtensa-esp32s3-none-elf

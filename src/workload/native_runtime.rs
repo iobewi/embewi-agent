@@ -61,7 +61,7 @@ pub async fn support_task(supervisor: &'static super::Supervisor) {
             forced_seen = forced;
             log::warn!("workload: StopTimeout, the Workload ignored the stop request and was halted ({forced} so far)");
         }
-        drain_logs(|level, text| {
+        drain_logs(24, |level, text| {
             let text = core::str::from_utf8(text).unwrap_or("<non-utf8>");
             match level {
                 1 => log::error!("workload: {text}"),
