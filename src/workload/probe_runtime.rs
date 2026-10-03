@@ -1,4 +1,4 @@
-//! S18 **validation** runtime backend (feature `workload-supervisor-probe`): the minimal
+//! S18 **validation** runtime backend (feature `test-probe-runtime`): the minimal
 //! thing that really executes and can be observed, so the Supervisor's state machine can
 //! be validated on hardware. It is **not** the Workload runtime and its artifact header
 //! (`S18PROBE`, see `iobewi_workload_ota::probe`) is not an ABI.

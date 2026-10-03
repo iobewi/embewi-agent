@@ -4,7 +4,7 @@
 //!   `workload_a`, `workload_b`, found by name); an older table is `Unsupported`.
 //! * The persistent state is OTM2 (owned by the Workload OTA engine). The Supervisor
 //!   reconciles it with the execution state through a runtime backend.
-//! * Without the `workload-supervisor-probe` feature the Agent has **no** supervisor:
+//! * Without the `test-probe-runtime` feature the Agent has **no** supervisor:
 //!   activation answers `501 supervisor_unavailable` and nothing runs. With it, a
 //!   minimal validation probe (see `probe`) stands in for the future runtime.
 
@@ -28,28 +28,28 @@ pub const RUNTIME_API: RuntimeApi = RuntimeApi::new(0, 9);
 
 pub type WorkloadService = WorkloadOtaService<EspFlashAccess>;
 
-#[cfg(all(feature = "workload-supervisor-probe", feature = "workload-native"))]
-compile_error!("workload-supervisor-probe and workload-native are two different runtimes: pick one");
+#[cfg(all(feature = "test-probe-runtime", feature = "workload-native"))]
+compile_error!("test-probe-runtime (test backend) and workload-native (production runtime) are two different runtimes: build the probe with --no-default-features --features test-probe-runtime");
 
-#[cfg(feature = "workload-supervisor-probe")]
+#[cfg(feature = "test-probe-runtime")]
 pub mod probe_runtime;
 #[cfg(feature = "workload-native")]
 pub mod native_runtime;
 
-#[cfg(feature = "workload-supervisor-probe")]
+#[cfg(feature = "test-probe-runtime")]
 pub type Supervisor =
     iobewi_esp_workload::engine::supervisor::WorkloadSupervisor<EspFlashAccess, probe_runtime::ProbeRuntime>;
 #[cfg(feature = "workload-native")]
 pub type Supervisor =
     iobewi_esp_workload::engine::supervisor::WorkloadSupervisor<EspFlashAccess, native_runtime::Runtime>;
 /// What the HTTP routes call for activate/confirm/rollback.
-#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
+#[cfg(any(feature = "test-probe-runtime", feature = "workload-native"))]
 pub type Control = &'static Supervisor;
-#[cfg(not(any(feature = "workload-supervisor-probe", feature = "workload-native")))]
+#[cfg(not(any(feature = "test-probe-runtime", feature = "workload-native")))]
 pub type Control = iobewi_workload_ota_http::NoSupervisor;
 
 static SERVICE: StaticCell<WorkloadService> = StaticCell::new();
-#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
+#[cfg(any(feature = "test-probe-runtime", feature = "workload-native"))]
 static SUPERVISOR: StaticCell<Supervisor> = StaticCell::new();
 
 /// Probes the partition table, builds the (single) Workload OTA service (and the
@@ -57,7 +57,7 @@ static SUPERVISOR: StaticCell<Supervisor> = StaticCell::new();
 /// recovery state. It does **not** start any Workload: that is `reconcile_task`.
 pub async fn init(
     flash: &'static SharedFlash,
-    #[cfg_attr(not(feature = "workload-supervisor-probe"), allow(unused_variables))] spawner: embassy_executor::Spawner,
+    #[cfg_attr(not(feature = "test-probe-runtime"), allow(unused_variables))] spawner: embassy_executor::Spawner,
     #[cfg(feature = "workload-native")] cpu: esp_hal::system::CpuControl<'static>,
     #[cfg(feature = "workload-native")] region_ok: bool,
 ) -> (&'static WorkloadService, Control) {
@@ -83,7 +83,7 @@ pub async fn init(
             Err(e) => log::warn!("workload: otm2 metadata unreadable: {e:?}"),
         }
     }
-    #[cfg(feature = "workload-supervisor-probe")]
+    #[cfg(feature = "test-probe-runtime")]
     let control: Control = {
         log::warn!("workload: supervisor probe backend ENABLED (validation build, not a production runtime)");
         &*SUPERVISOR.init(iobewi_esp_workload::engine::supervisor::WorkloadSupervisor::new(
@@ -99,7 +99,7 @@ pub async fn init(
             native_runtime::new(cpu, RUNTIME_API, region_ok),
         ))
     };
-    #[cfg(not(any(feature = "workload-supervisor-probe", feature = "workload-native")))]
+    #[cfg(not(any(feature = "test-probe-runtime", feature = "workload-native")))]
     let control: Control = iobewi_workload_ota_http::NoSupervisor;
     (service, control)
 }
@@ -116,9 +116,24 @@ pub async fn agent_can_run_active_workload(service: &WorkloadService) -> bool {
 
 /// Boot-time reconciliation: OTM2 state -> running Workload (offline: needs no Wi-Fi,
 /// no Core). Runs once, right after the Agent decided to stay.
-#[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
+#[cfg(any(feature = "test-probe-runtime", feature = "workload-native"))]
 #[embassy_executor::task]
 pub async fn reconcile_task(supervisor: &'static Supervisor) {
+    // Crash-loop guard (native runtime): a Workload that keeps taking the whole chip down is
+    // not auto-started again; the Agent stays up and a replacement can be deployed.
+    #[cfg(feature = "workload-native")]
+    match native_runtime::boot_decision() {
+        iobewi_esp_workload::native::boot_guard::BootDecision::Start { attempts } => {
+            log::info!("workload: boot auto-start {attempts}/{}", iobewi_esp_workload::native::boot_guard::MAX_UNCLEAN_STARTS);
+        }
+        iobewi_esp_workload::native::boot_guard::BootDecision::Suppressed { attempts } => {
+            log::error!(
+                "workload: {attempts} consecutive unclean boots since the Workload was last healthy: auto-start SUPPRESSED, \
+                 the Agent stays up (deploy a replacement, or reboot on purpose to retry)"
+            );
+            return;
+        }
+    }
     let outcome = supervisor.reconcile_boot().await;
     log::info!("workload: boot reconcile -> {outcome:?}");
 }

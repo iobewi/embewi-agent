@@ -371,7 +371,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Boot reconciliation of the Workload (offline: no Wi-Fi, no Core needed). Only
     // reached once the Agent itself is confirmed/staying.
-    #[cfg(any(feature = "workload-supervisor-probe", feature = "workload-native"))]
+    #[cfg(any(feature = "test-probe-runtime", feature = "workload-native"))]
     spawner.spawn(embewi_agent_esp::workload::reconcile_task(workload_control).unwrap());
     #[cfg(feature = "workload-native")]
     spawner.spawn(embewi_agent_esp::workload::native_runtime::support_task(workload_control).unwrap());

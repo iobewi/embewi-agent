@@ -11,12 +11,13 @@
 #   scripts/test-workload-ota.sh <url> <token> compat <file>     # stage un Workload exigeant une API future -> activate refusé (409)
 #   scripts/test-workload-ota.sh <url> <token> activate <file>   # POST /activate (S17 : 501 supervisor_unavailable attendu)
 #
-#   (S18, build `workload-supervisor-probe`)
+#   (S18, build `test-probe-runtime`)
 #   scripts/test-workload-ota.sh <url> <token> mkprobe <out> [fault=none|fail-start|freeze|health-fail|reset-on-start|reset-on-stop] [period_ms=500] [size=65536] [salt]
 #   scripts/test-workload-ota.sh <url> <token> runtime           # etat OTM2 + execution (running/health)
 #   scripts/test-workload-ota.sh <url> <token> sup-activate <file>  # activate -> pending_confirmation, runtime reellement lance
 #   scripts/test-workload-ota.sh <url> <token> sup-confirm       # confirm -> valid (refuse si non Healthy)
 #   scripts/test-workload-ota.sh <url> <token> sup-rollback      # rollback manuel -> precedent Valid (ou Empty)
+#   scripts/test-workload-ota.sh <url> <token> sup-corrupt <file> [offset]   # (S20, build test-fault-injection) corrompt le slot staged puis active: 422 candidate_corrupted
 #   scripts/test-workload-ota.sh <url> <token> sup-reject <file> <reason>   # (S19) image refusee a l'activation: 422 image_rejected, Staged conserve
 #   scripts/test-workload-ota.sh <url> <token> wait-running <file>          # (S19) attend que ce digest tourne
 #   scripts/test-workload-ota.sh <url> <token> sup-start-fault <file>  # artefact fail-start: activate -> 500 rolled_back, ancien relance
@@ -325,7 +326,26 @@ run_wait_running() {
     echo "pas en cours d'execution: $want"; return 1
 }
 
+# S20 (build `test-fault-injection`): damage the staged candidate's slot AFTER it was verified,
+# then activate: the SHA-256 re-check must refuse it -- no jump, no native execution, the
+# running Workload untouched, the corrupted candidate discarded.
+run_sup_corrupt() {
+    local file="${1:?file}" offset="${2:-5}" before; before=$(wl_get /status)
+    local r; r=$(wl_post /test/corrupt-candidate "$offset")
+    echo "corrupt -> $(status_of "$r") $(body_of "$r")"
+    check "corruption injectee (200)" "$(status_of "$r")" "200"
+    r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
+    echo "activate -> $(status_of "$r") $(body_of "$r")"
+    check "activation refusee -> 422" "$(status_of "$r")" "422"
+    check "error == candidate_corrupted" "$(jget "$(body_of "$r")" error)" "candidate_corrupted"
+    local s; s=$(wl_get /status)
+    check "le candidat corrompu n'existe plus (etat != staged)" "$([[ "$(jget "$s" state)" != "staged" ]] && echo yes)" "yes"
+    check "le Workload precedent tourne toujours" "$(jget "$s" runtime.artifact.digest)" "$(jget "$before" runtime.artifact.digest)"
+    check "il est sain" "$(jget "$s" runtime.health)" "healthy"
+}
+
 case "$MODE" in
+    sup-corrupt) run_sup_corrupt "${4:-}" "${5:-5}" ;;
     sup-reject) run_sup_reject "${4:-}" "${5:-}" ;;
     wait-running) run_wait_running "${4:-}" ;;
     mkprobe) shift 3; run_mkprobe "$@" ;;

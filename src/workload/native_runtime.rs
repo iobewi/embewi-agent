@@ -9,6 +9,8 @@ use core::mem::MaybeUninit;
 
 use embassy_time::{Duration, Timer};
 use iobewi_esp_workload::model::RuntimeApi;
+use iobewi_esp_workload::engine::supervisor::{Health, WorkloadRuntime};
+use iobewi_esp_workload::native::boot_guard::{self, BootDecision, GuardRecord, ProvenHealth};
 use iobewi_esp_workload::native::{EspNativeBackend, NativeRuntime, drain_logs, take_dropped_logs};
 
 pub type Runtime = NativeRuntime<EspNativeBackend>;
@@ -45,6 +47,33 @@ pub fn init_reclaimed_ram() -> bool {
     true
 }
 
+/// Crash-loop guard state. RTC fast RAM survives every reset except a power cycle (which
+/// zeroes it, i.e. forgets); four words sealed by a checksum, because a reset can interrupt a
+/// write. See `iobewi_workload_native::boot_guard`. Nothing about it is persisted in OTM2.
+#[esp_hal::ram(unstable(rtc_fast, persistent))]
+static mut GUARD_WORDS: [u32; 4] = [0; 4];
+
+fn with_guard<R>(f: impl FnOnce(&mut GuardRecord) -> R) -> R {
+    // SAFETY: only the boot code, the reboot task and the support task touch it, all on the
+    // single Agent core and never concurrently with each other in a way that matters (each
+    // access is a short read-modify-write of four words).
+    let words = unsafe { (&raw mut GUARD_WORDS).read_volatile() };
+    let mut record = GuardRecord::from_words(words);
+    let out = f(&mut record);
+    unsafe { (&raw mut GUARD_WORDS).write_volatile(record.to_words()) };
+    out
+}
+
+/// Whether the Workload may be auto-started at this boot (and counts this attempt).
+pub fn boot_decision() -> BootDecision {
+    with_guard(boot_guard::on_boot)
+}
+
+/// Call right before a deliberate reset (operator reboot, Agent OTA): the next boot is not a crash.
+pub fn mark_clean_reboot() {
+    with_guard(|r| boot_guard::mark_clean_reboot(r));
+}
+
 pub fn new(cpu: esp_hal::system::CpuControl<'static>, provides: RuntimeApi, region_ok: bool) -> Runtime {
     NativeRuntime::new(EspNativeBackend::new(cpu, provides, region_ok))
 }
@@ -59,14 +88,22 @@ pub async fn support_task(supervisor: &'static super::Supervisor) {
     // a second.
     const LINES_PER_TICK: usize = 2;
     let mut forced_seen = 0u32;
+    let mut quarantined_seen = 0u32;
     let mut dropped_total = 0u32;
     let mut ticks = 0u32;
+    let mut proven = ProvenHealth::new();
     loop {
-        supervisor.runtime().sample();
-        let forced = supervisor.runtime().forced_stops();
+        let runtime = supervisor.runtime();
+        runtime.sample();
+        let forced = runtime.forced_stops();
         if forced != forced_seen {
             forced_seen = forced;
             log::warn!("workload: StopTimeout, the Workload ignored the stop request and was halted ({forced} so far)");
+        }
+        let quarantined = runtime.quarantines();
+        if quarantined != quarantined_seen {
+            quarantined_seen = quarantined;
+            log::error!("workload: Workload died or wedged: its core was halted (quarantined); the Agent is unaffected");
         }
         drain_logs(LINES_PER_TICK, |level, text| {
             let text = core::str::from_utf8(text).unwrap_or("<non-utf8>");
@@ -79,9 +116,17 @@ pub async fn support_task(supervisor: &'static super::Supervisor) {
         });
         dropped_total = dropped_total.saturating_add(take_dropped_logs());
         ticks += 1;
-        if ticks % 10 == 0 && dropped_total > 0 {
-            log::warn!("workload: {dropped_total} log lines dropped (rate-limited)");
-            dropped_total = 0;
+        if ticks % 10 == 0 {
+            if dropped_total > 0 {
+                log::warn!("workload: {dropped_total} log lines dropped (rate-limited)");
+                dropped_total = 0;
+            }
+            // Healthy for long enough: forget earlier crashes (the guard's counter).
+            let healthy = runtime.health().await == Health::Healthy;
+            if proven.observe(healthy, embassy_time::Instant::now().as_millis()) {
+                with_guard(|r| boot_guard::mark_proven_healthy(r));
+                log::info!("workload: healthy for {} s, boot-failure counter cleared", boot_guard::PROVEN_HEALTHY_MS / 1000);
+            }
         }
         Timer::after(Duration::from_millis(100)).await;
     }

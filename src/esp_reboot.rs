@@ -35,6 +35,9 @@ type LpwrCell = Mutex<CriticalSectionRawMutex, Option<LPWR<'static>>>;
 #[embassy_executor::task]
 async fn reboot_after_delay(lpwr: LPWR<'static>) -> ! {
     Timer::after(Duration::from_millis(500)).await;
+    // A deliberate reset is not evidence of a crashing Workload (see the crash-loop guard).
+    #[cfg(feature = "workload-native")]
+    crate::workload::native_runtime::mark_clean_reboot();
     // The physical reset (RTC watchdog, system scope) is `iobewi-esp-reset`;
     // this task is only the graceful part: wait, then arm it.
     let _rtc = iobewi_esp_reset::arm_system_reset(lpwr, 100);
