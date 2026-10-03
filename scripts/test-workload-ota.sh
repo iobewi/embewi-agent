@@ -17,6 +17,8 @@
 #   scripts/test-workload-ota.sh <url> <token> sup-activate <file>  # activate -> pending_confirmation, runtime reellement lance
 #   scripts/test-workload-ota.sh <url> <token> sup-confirm       # confirm -> valid (refuse si non Healthy)
 #   scripts/test-workload-ota.sh <url> <token> sup-rollback      # rollback manuel -> precedent Valid (ou Empty)
+#   scripts/test-workload-ota.sh <url> <token> sup-reject <file> <reason>   # (S19) image refusee a l'activation: 422 image_rejected, Staged conserve
+#   scripts/test-workload-ota.sh <url> <token> wait-running <file>          # (S19) attend que ce digest tourne
 #   scripts/test-workload-ota.sh <url> <token> sup-start-fault <file>  # artefact fail-start: activate -> 500 rolled_back, ancien relance
 #   scripts/test-workload-ota.sh <url> <token> sup-health-fault <file> # artefact health-fail: activate OK, confirm -> 409 workload_unhealthy
 #
@@ -298,7 +300,34 @@ run_sup_activate_nohealth() {
     check "runtime.health == unhealthy" "$(wait_health unhealthy 20)" "unhealthy"
 }
 
+# S19 (build `workload-native`): a native image the gate refuses -> 422 image_rejected, the
+# candidate stays Staged, the running Workload is untouched, and nothing was executed.
+run_sup_reject() {
+    local file="${1:?file}" reason="${2:?reason}" api="${3:-1.0}"
+    local before; before=$(wl_get /status)
+    local r; r=$(wl_post /activate "{\"digest\":\"$(digest_of "$file")\"}")
+    echo "activate -> $(status_of "$r") $(body_of "$r")"
+    check "activation refusee -> 422" "$(status_of "$r")" "422"
+    check "error == image_rejected" "$(jget "$(body_of "$r")" error)" "image_rejected"
+    check "reason == $reason" "$(jget "$(body_of "$r")" reason)" "$reason"
+    local s; s=$(wl_get /status)
+    check "le candidat reste Staged" "$(jget "$s" state)" "staged"
+    check "le Workload actif est intact" "$(jget "$s" runtime.artifact.digest)" "$(jget "$before" runtime.artifact.digest)"
+}
+
+# Wait until the running Workload reports the expected identity digest.
+run_wait_running() {
+    local file="${1:?file}" n=15 want; want=$(digest_of "$file")
+    while [[ "$n" -gt 0 ]]; do
+        [[ "$(jget "$(wl_get /status)" runtime.artifact.digest)" == "$want" ]] && { echo "running $want"; return 0; }
+        sleep 1; n=$((n - 1))
+    done
+    echo "pas en cours d'execution: $want"; return 1
+}
+
 case "$MODE" in
+    sup-reject) run_sup_reject "${4:-}" "${5:-}" ;;
+    wait-running) run_wait_running "${4:-}" ;;
     mkprobe) shift 3; run_mkprobe "$@" ;;
     runtime) run_runtime ;;
     sup-activate) run_sup_activate "${4:-}" ;;

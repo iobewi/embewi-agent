@@ -53,8 +53,14 @@ pub fn new(cpu: esp_hal::system::CpuControl<'static>, provides: RuntimeApi, regi
 /// Agent's logger, which already streams to the Core when connected.
 #[embassy_executor::task]
 pub async fn support_task(supervisor: &'static super::Supervisor) {
+    let mut forced_seen = 0u32;
     loop {
         supervisor.runtime().sample();
+        let forced = supervisor.runtime().forced_stops();
+        if forced != forced_seen {
+            forced_seen = forced;
+            log::warn!("workload: StopTimeout, the Workload ignored the stop request and was halted ({forced} so far)");
+        }
         drain_logs(|level, text| {
             let text = core::str::from_utf8(text).unwrap_or("<non-utf8>");
             match level {
