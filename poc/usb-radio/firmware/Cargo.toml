@@ -9,7 +9,7 @@ usb-radio-core = { path = "../core" }
 
 embassy-executor = "0.10.0"
 embassy-futures = "0.1.2"
-embassy-usb = { version = "0.6.0", default-features = false }
+embassy-usb = { version = "0.6.0", default-features = false, features = ["log"] }
 
 esp-backtrace = { version = "0.20.0", features = [
   "esp32s3",

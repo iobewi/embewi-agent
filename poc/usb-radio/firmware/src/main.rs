@@ -42,6 +42,7 @@ impl Handler for BusLog {
 
 #[esp_hal::main]
 async fn main(_spawner: Spawner) {
+    esp_println::logger::init_logger_from_env();
     esp_println::println!("usb-radio POC: P1 static virtual FAT16 MSC");
     esp_println::println!("usb-radio POC: DP=GPIO20 DM=GPIO19");
 

@@ -7,3 +7,7 @@ runner = "espflash flash --monitor"
 
 [unstable]
 build-std = ["core"]
+
+[env]
+# Only embassy-usb control-request tracing (enumeration debugging).
+ESP_LOG = "embassy_usb=trace"
