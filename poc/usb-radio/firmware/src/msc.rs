@@ -92,6 +92,7 @@ impl Handler for Control {
 
         match req.request {
             MSC_REQ_GET_MAX_LUN if req.value == 0 && req.length == 1 => {
+                esp_println::println!("msc: get max lun");
                 buf[0] = 0; // one LUN
                 Some(InResponse::Accepted(&buf[..1]))
             }
@@ -225,6 +226,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         let mut packet = [0u8; 64];
         // (sense key, ASC) of the last failed command, reported once by REQUEST SENSE.
         let mut sense = (0u8, 0u8);
+        // Diagnostics: non-READ(10) commands are not otherwise visible in the log.
+        let mut cmds_logged = 0u32;
 
         loop {
             let n = self.read_ep.read(&mut packet).await?;
@@ -237,6 +240,16 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 esp_println::println!("msc: invalid CBW");
                 continue;
             };
+
+            if cbw.command[0] != SCSI_READ_10 && cmds_logged < 24 {
+                cmds_logged += 1;
+                esp_println::println!(
+                    "msc: cmd op=0x{:02x} xfer={} tag={}",
+                    cbw.command[0],
+                    cbw.transfer_len,
+                    cbw.tag
+                );
+            }
 
             let mut residue = cbw.transfer_len;
             let mut status = 0u8;
