@@ -27,7 +27,7 @@ esp-rtos = { version = "0.4.0", features = [
   "embassy",
   "log-04",
 ] }
-esp-println = { version = "0.18.0", features = [
+esp-println = { version = "0.18.0", default-features = false, features = [
   "esp32s3",
   "log-04",
   "uart",
