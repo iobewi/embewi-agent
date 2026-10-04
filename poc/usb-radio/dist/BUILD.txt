@@ -1,0 +1,25 @@
+repository:   https://github.com/iobewi/embewi-agent.git
+branch:       poc/usb-radio-stream
+source:       be8512fef727b3d19193c21a252695ba21781f9c
+target:       xtensa-esp32s3-none-elf (ESP32-S3)
+profile:      release
+rustc (esp):  rustc 1.97.0-nightly (8ea53bcd7 2026-07-08) (1.97.0.0)
+cargo (esp):  cargo 1.97.0-nightly (c980f4866 2026-06-30) (1.97.0.0)
+rustc (core): rustc 1.95.0 (59807616e 2026-04-14)
+espflash:     espflash 4.6.0
+
+RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/workspace/embewi-agent/poc/usb-radio=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
+SOURCE_DATE_EPOCH: 1791108936
+build (cwd poc/usb-radio):
+  cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
+  cargo +esp build -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf
+image (cwd poc/usb-radio):
+  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware dist/usb-radio-poc-esp32s3.bin
+
+flash layout: single merged image (bootloader + partition table + app) at 0x0
+  0x0 -> usb-radio-poc-esp32s3.bin
+  (espflash default bootloader and partition table; no custom partitions)
+
+sha256:
+  1db66d37329d5049517eaa6cd9731ec564c810faac837dee59bae535104c2d7e  usb-radio-poc-esp32s3.bin
+  2f663b17b344292b241e0a772cf1acdc5d1c43441b1eeccd34f1fa4d86943172  usb-radio-poc-esp32s3.elf

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>USB Radio POC — Flash</title>
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+        code { background: #8882; padding: 0 .25em; }
+    </style>
+</head>
+<body>
+    <h1>USB Radio POC — P1</h1>
+    <p>ESP32-S3, virtual read-only FAT16 USB mass storage (<code>RADIO.MP3</code> = diagnostic pattern).</p>
+
+    <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Flash the POC</button>
+        <span slot="unsupported">Web Serial not supported: use Chrome or Edge.</span>
+        <span slot="not-allowed">Serve this page over HTTPS or from localhost.</span>
+    </esp-web-install-button>
+
+    <ol>
+        <li>Connect the board's <b>USB-UART</b> port to this computer, then click the button and pick the serial port.</li>
+        <li>After flashing, use <b>Logs &amp; Console</b> in the dialog to watch the boot log (115200 baud).</li>
+        <li>Plug the board's <b>native USB OTG</b> port (D+ GPIO20 / D- GPIO19) into the Metronic.</li>
+    </ol>
+</body>
+</html>
