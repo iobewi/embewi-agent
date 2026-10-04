@@ -28,7 +28,7 @@ SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist')"
 export SOURCE_DATE_EPOCH
 
 CORE_CMD="cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu"
-BUILD_CMD="cargo +esp build -p $PKG --release -Z build-std=core --target $TARGET"
+BUILD_CMD="cargo +esp build -p $PKG --release -Z build-std=core,alloc --target $TARGET"
 IMAGE_CMD="espflash save-image --chip esp32s3 --merge --skip-padding $ELF_SRC dist/$NAME.bin"
 
 echo "== usb-radio-core tests"
