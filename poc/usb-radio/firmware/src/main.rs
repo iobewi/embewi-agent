@@ -5,7 +5,7 @@ mod msc;
 
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_usb::Builder;
+use embassy_usb::{Builder, Handler};
 use esp_backtrace as _;
 use esp_hal::{
     timer::timg::TimerGroup,
@@ -18,6 +18,27 @@ use msc::{MscClass, State as MscState};
 use usb_radio_core::{DiagnosticSource, VirtualFat16};
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+/// Logs USB bus lifecycle events to show how far a host's enumeration gets.
+struct BusLog;
+
+impl Handler for BusLog {
+    fn enabled(&mut self, enabled: bool) {
+        esp_println::println!("usb: enabled={}", enabled);
+    }
+    fn reset(&mut self) {
+        esp_println::println!("usb: bus reset");
+    }
+    fn addressed(&mut self, addr: u8) {
+        esp_println::println!("usb: addressed={}", addr);
+    }
+    fn configured(&mut self, configured: bool) {
+        esp_println::println!("usb: configured={}", configured);
+    }
+    fn suspended(&mut self, suspended: bool) {
+        esp_println::println!("usb: suspended={}", suspended);
+    }
+}
 
 #[esp_hal::main]
 async fn main(_spawner: Spawner) {
@@ -49,6 +70,7 @@ async fn main(_spawner: Spawner) {
     let mut control_buf = [0u8; 64];
 
     let mut msc_state = MscState::new();
+    let mut bus_log = BusLog;
 
     let mut builder = Builder::new(
         driver,
@@ -58,6 +80,8 @@ async fn main(_spawner: Spawner) {
         &mut [],
         &mut control_buf,
     );
+
+    builder.handler(&mut bus_log);
 
     let mut msc = MscClass::new(&mut builder, &mut msc_state);
     let mut usb_device = builder.build();

@@ -153,6 +153,11 @@ msc: connected
 msc: READ10 lba=... blocks=...
 ```
 
+Bus lifecycle (shows how far a host's enumeration gets): `usb: enabled=true`,
+`usb: bus reset`, `usb: addressed=N`, `usb: configured=true`, `usb: suspended=...`.
+No `bus reset` = the host never drove the bus; reset/addressed without `configured=true`
+= enumeration stops before SET_CONFIGURATION.
+
 Other lines: `msc: bulk-only reset`, `msc: unsupported SCSI opcode=0x.. xfer=..`
 (answered with CSW status 1 + sense ILLEGAL REQUEST), `msc: disconnected`.
 
