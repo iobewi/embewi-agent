@@ -73,7 +73,7 @@ impl Handler for BusLog {
 #[esp_hal::main]
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
-    esp_println::println!("usb-radio POC: P2 live HTTP MP3 -> USB MSC");
+    esp_println::println!("usb-radio POC: P3 continuous HTTP MP3 -> USB MSC");
     esp_println::println!("usb-radio POC: DP=GPIO20 DM=GPIO19");
     esp_println::println!("stream: {}", stream::STREAM_URL);
 
