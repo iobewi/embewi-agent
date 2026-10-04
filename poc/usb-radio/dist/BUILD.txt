@@ -1,25 +1,26 @@
 repository:   https://github.com/iobewi/embewi-agent.git
 branch:       poc/usb-radio-stream
-source:       6134bcaeb01f0c9d875243759af41d85dfe5c68e (+ uncommitted changes under poc/usb-radio)
+source:       71cb8636b7cef506706ad0474c225641ac88d14e
 target:       xtensa-esp32s3-none-elf (ESP32-S3)
 profile:      release
+delivery:     credential-free (Wi-Fi provisioned at runtime via Improv Serial)
 rustc (esp):  rustc 1.97.0-nightly (8ea53bcd7 2026-07-08) (1.97.0.0)
 cargo (esp):  cargo 1.97.0-nightly (c980f4866 2026-06-30) (1.97.0.0)
 rustc (core): rustc 1.95.0 (59807616e 2026-04-14)
 espflash:     espflash 4.6.0
 
 RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/workspace/embewi-agent/poc/usb-radio=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
-SOURCE_DATE_EPOCH: 1791117084
+SOURCE_DATE_EPOCH: 1791119816
 build (cwd poc/usb-radio):
   cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
-  cargo +esp build -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf
+  cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
 image (cwd poc/usb-radio):
-  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware dist/usb-radio-poc-esp32s3.bin
+  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware /workspace/embewi-agent/poc/usb-radio/dist/usb-radio-poc-esp32s3.bin
 
 flash layout: single merged image (bootloader + partition table + app) at 0x0
   0x0 -> usb-radio-poc-esp32s3.bin
   (espflash default bootloader and partition table; no custom partitions)
 
 sha256:
-  c4635f28c2518a35b63f99ee67d7712fdad0d9bacbded3cbdc7ddf163d6405af  usb-radio-poc-esp32s3.bin
-  094c43a09599230b22764a623e5f5e99cf619a90b3c4c5e378b309a78e744cf8  usb-radio-poc-esp32s3.elf
+  900007f7c99723ad436adb61eaa672dcf211b58d4d3271b87f5403dd7204e435  usb-radio-poc-esp32s3.bin
+  152efd55c29d3816d6e09f4ffb988d322f597b7df9b373fd30bcf1812d0549a4  usb-radio-poc-esp32s3.elf

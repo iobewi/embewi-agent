@@ -12,7 +12,7 @@
 </head>
 <body>
     <h1>USB Radio POC — P1</h1>
-    <p>ESP32-S3, virtual read-only FAT16 USB mass storage (<code>RADIO.MP3</code> = diagnostic pattern).</p>
+    <p>ESP32-S3: live HTTP MP3 stream exposed as a virtual read-only FAT16 USB mass-storage disk (<code>RADIO.MP3</code>).</p>
 
     <esp-web-install-button manifest="manifest.json">
         <button slot="activate">Flash the POC</button>
@@ -22,7 +22,8 @@
 
     <ol>
         <li>Connect the board's <b>USB-UART</b> port to this computer, then click the button and pick the serial port.</li>
-        <li>After flashing, use <b>Logs &amp; Console</b> in the dialog to watch the boot log (115200 baud).</li>
+        <li>After flashing, choose <b>Connect to Wi-Fi</b> in the dialog (Improv Serial): pick your network and enter the password. It is saved in the board's flash; nothing is baked into the firmware. Do this with the OTG port <b>unplugged</b>.</li>
+        <li>Use <b>Logs &amp; Console</b> to watch the boot log (115200 baud).</li>
         <li>Plug the board's <b>native USB OTG</b> port (D+ GPIO20 / D- GPIO19) into the Metronic.</li>
     </ol>
 </body>
