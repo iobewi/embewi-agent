@@ -133,6 +133,10 @@ Board: ESP32-S3. Two different USB connectors are involved:
 The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
 console; logs (`esp-println`, `uart` feature) come out on the USB-UART port only.
 
+The committed `dist/` artefacts are still the P1 reference image. P2 embeds local Wi-Fi
+credentials at build time, so a P2 binary must be rebuilt locally and must not be committed
+with credentials.
+
 Artefacts are in `dist/` (see `dist/BUILD.txt` for provenance, `dist/SHA256SUMS`):
 `usb-radio-poc-esp32s3.bin` is a single merged image (bootloader + partition table + app)
 written at `0x0`; `usb-radio-poc-esp32s3.elf` is the matching ELF.
