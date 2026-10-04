@@ -42,7 +42,7 @@ jobs:
         with:
           tool: espflash
       - name: Release build (real link)
-        run: cargo +esp build -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf
+        run: cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
       - name: Flashable image
         run: |
           mkdir -p ci-out
