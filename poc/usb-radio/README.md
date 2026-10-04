@@ -51,26 +51,52 @@ player reads sequentially, reads ahead, seeks, or rereads old sectors.
 At this stage the contents of `RADIO.MP3` are diagnostic bytes, not playable audio.
 The acceptance criterion is enumeration + FAT mount + file discovery.
 
-### P2 — static real MP3
+### P2 — live HTTP MP3 source
 
-Replace the diagnostic file source with a known-good MP3 sample without changing the USB
-or FAT layers.
+P1 proved on real hardware that the Metronic enumerates the device, finds `RADIO.MP3`,
+shows `MP3` / `F001` and starts its playback counter. P2 therefore goes directly to
+the real Radio France MP3 stream instead of adding an intermediate static-MP3 stage.
+
+The ESP32-S3:
+
+- joins Wi-Fi and gets an IPv4 configuration through DHCP;
+- opens the Radio France HTTP MP3 stream;
+- prebuffers 64 KiB before enabling USB MSC;
+- keeps a 96 KiB rolling window;
+- limits the network producer to at most 80 KiB ahead of the highest file offset consumed
+  by USB;
+- maps the live bytes to the existing `RADIO.MP3` sectors;
+- waits when the Metronic asks for a sector that has not arrived yet.
+
+The P1 FAT16 geometry is intentionally unchanged for the first streaming test. The
+virtual file remains 2 MiB; this is enough to validate audible streaming before changing
+file-system geometry or long-run behaviour.
 
 Acceptance:
 
-- Metronic lists the file;
-- playback starts;
-- LBA trace is captured from start through steady playback.
+- Wi-Fi connects;
+- the HTTP stream returns status 200;
+- the 64 KiB prebuffer fills;
+- USB enumeration starts only after prebuffer;
+- Metronic shows `MP3` / `F001`;
+- the Radio France stream is audible.
 
-### P3 — live HTTP source
+### P3 — stream hardening
 
-Add Wi-Fi + HTTP ingestion from the Radio France URL and a rolling MP3 window behind the
-same virtual file-sector interface.
-
-The USB/FAT side must remain unchanged. The LBA trace from P1/P2 determines how much
-history the rolling buffer must retain.
+Only after P2 hardware PASS: extend virtual duration, handle long runs/reconnects,
+characterize underruns/backward reads, and tune buffer/FAT geometry if measurements
+justify it.
 
 ## Build
+
+P2 Wi-Fi credentials are compile-time inputs. They are deliberately not committed:
+
+```sh
+export WIFI_SSID='your-ssid'
+export WIFI_PASSWORD='your-password'
+```
+
+An empty password selects an open network.
 
 From the repository root:
 
@@ -78,10 +104,14 @@ From the repository root:
 cd poc/usb-radio
 cargo test -p usb-radio-core
 
+WIFI_SSID="$WIFI_SSID" WIFI_PASSWORD="$WIFI_PASSWORD" \
 cargo +esp build -p usb-radio-firmware --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
+
+CI builds with no credentials to validate compilation only; such an image intentionally
+stops before Wi-Fi initialization at runtime.
 
 Flash/monitor, assuming `espflash` is installed:
 
@@ -142,8 +172,9 @@ ESP app descriptor), so the output is byte-identical for a given source commit.
 ### Expected boot log
 
 ```text
-usb-radio POC: P1 static virtual FAT16 MSC
+usb-radio POC: P2 live HTTP MP3 -> USB MSC
 usb-radio POC: DP=GPIO20 DM=GPIO19
+stream: http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3
 ```
 
 When a host enumerates the device:
@@ -188,6 +219,6 @@ USB-UART bridge port and assume it is the native OTG peripheral.
 
 ## Important limitation
 
-This POC intentionally reports a fixed FAT16 file size. A live radio stream is infinite,
-while FAT/MSC is random-access and finite. P3 therefore depends on the actual Metronic
-access pattern observed in P1/P2; no streaming strategy is assumed in advance.
+P2 deliberately keeps the original 2 MiB virtual file and uses a bounded rolling RAM
+window. It validates the bridge, not infinite playback. Extending the virtual duration
+and hardening reconnect/seek behaviour belongs to P3 after the live-audio hardware gate.
