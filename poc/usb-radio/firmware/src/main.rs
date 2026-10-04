@@ -13,7 +13,7 @@ use core::cell::RefCell;
 
 use embassy_futures::join::join;
 use embassy_net::{Runner, StackResources};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, Handler};
 use esp_alloc as _;
@@ -38,9 +38,6 @@ use stream::{STREAM, SharedStreamSource};
 use usb_radio_core::VirtualFat16;
 
 esp_bootloader_esp_idf::esp_app_desc!();
-
-/// Longest wait for the 64 KiB prebuffer before the USB disk is enabled regardless.
-const PREBUFFER_WAIT: Duration = Duration::from_secs(15);
 
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
@@ -168,18 +165,10 @@ async fn main(spawner: Spawner) {
     let stream_fut = stream::run(stack, &STREAM);
 
     let usb_fut = async {
-        // Do not hide the disk forever when Wi-Fi/stream is not up (not provisioned yet,
-        // network down): after the timeout the MSC is enabled anyway. Boot/FAT/root reads
-        // never depend on the stream; only reads of RADIO.MP3 data wait for it.
-        let started = Instant::now();
+        // The USB disk is only presented once the stream has delivered the prebuffer: a visible
+        // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
+        // would look like an empty file to the host. Without data there is no USB device.
         while !STREAM.is_ready() {
-            if started.elapsed() >= PREBUFFER_WAIT {
-                esp_println::println!(
-                    "usb: prebuffer not ready after {} s (Wi-Fi/stream not up?), enabling MSC anyway",
-                    PREBUFFER_WAIT.as_secs()
-                );
-                break;
-            }
             let (written, consumed) = STREAM.progress();
             esp_println::println!(
                 "stream: prebuffer written={} consumed={}",
