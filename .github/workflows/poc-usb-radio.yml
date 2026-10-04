@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95.0"
-      - run: cargo +1.95.0 test -p usb-radio-core
+      - run: cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
 
   esp32s3:
     runs-on: ubuntu-latest
