@@ -89,7 +89,7 @@ impl FileSource for DiagnosticSource {
 
         if index == 0 {
             out[..10].copy_from_slice(b"ID3\x04\x00\x00\x00\x00\x00\x00");
-            out[16..31].copy_from_slice(b"IOBEWI-USB-RADIO");
+            out[16..32].copy_from_slice(b"IOBEWI-USB-RADIO");
         }
 
         out[SECTOR_SIZE - 4..].copy_from_slice(&index.to_le_bytes());
@@ -223,6 +223,16 @@ mod tests {
             u16::from_le_bytes([sector[in_sector], sector[in_sector + 1]]),
             0xFFFF
         );
+    }
+
+    #[test]
+    fn first_file_sector_contains_diagnostic_marker_without_panicking() {
+        let mut disk = VirtualFat16::new(DiagnosticSource);
+        let mut sector = [0u8; SECTOR_SIZE];
+        disk.read_sector(DATA_START_LBA, &mut sector);
+
+        assert_eq!(&sector[..3], b"ID3");
+        assert_eq!(&sector[16..32], b"IOBEWI-USB-RADIO");
     }
 
     #[test]
