@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build the P1 firmware, produce the flashable image and (re)generate dist/.
+# Build the USB-radio firmware and produce a flashable image.
+# Credential-free builds write the versioned P1 reference to dist/.
+# Any build carrying Wi-Fi credentials writes only to ignored dist-local/.
 # Re-runnable; run from anywhere. Requires: rustup toolchains 1.95.0 + esp, espflash.
 set -euo pipefail
 
@@ -9,7 +11,13 @@ cd "$POC_DIR"
 TARGET=xtensa-esp32s3-none-elf
 PKG=usb-radio-firmware
 NAME=usb-radio-poc-esp32s3
-DIST="$POC_DIR/dist"
+if [[ -n "${WIFI_SSID:-}" || -n "${WIFI_PASSWORD:-}" ]]; then
+    DIST="$POC_DIR/dist-local"
+    BUILD_KIND="P2 local (contains Wi-Fi credentials; never commit/share)"
+else
+    DIST="$POC_DIR/dist"
+    BUILD_KIND="credential-free reference"
+fi
 ELF_SRC="target/$TARGET/release/$PKG"
 
 # Deterministic build: strip absolute paths of the checkout, cargo registry and
@@ -23,13 +31,13 @@ export RUSTFLAGS="-C force-frame-pointers \
 
 # esp_app_desc embeds a build date/time; esp-bootloader-esp-idf honours
 # SOURCE_DATE_EPOCH. Tie it to the last commit touching the POC sources
-# (dist/ excluded, so committing the artefacts does not change the build).
-SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist')"
+# (generated delivery directories excluded, so rebuilding artefacts does not change it).
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist' ':(exclude)dist-local')"
 export SOURCE_DATE_EPOCH
 
 CORE_CMD="cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu"
 BUILD_CMD="cargo +esp build -p $PKG --release -Z build-std=core,alloc --target $TARGET"
-IMAGE_CMD="espflash save-image --chip esp32s3 --merge --skip-padding $ELF_SRC dist/$NAME.bin"
+IMAGE_CMD="espflash save-image --chip esp32s3 --merge --skip-padding $ELF_SRC $DIST/$NAME.bin"
 
 echo "== usb-radio-core tests"
 $CORE_CMD
@@ -45,13 +53,14 @@ $IMAGE_CMD
 
 COMMIT="$(git rev-parse HEAD)"
 DIRTY=""
-[ -n "$(git status --porcelain --untracked-files=no -- "$POC_DIR")" ] && DIRTY=" (+ uncommitted changes under poc/usb-radio)"
+[ -n "$(git status --porcelain --untracked-files=no -- "$POC_DIR" ':(exclude)dist' ':(exclude)dist-local')" ] && DIRTY=" (+ uncommitted source changes under poc/usb-radio)"
 {
   echo "repository:   $(git remote get-url origin 2>/dev/null || echo unknown)"
   echo "branch:       $(git rev-parse --abbrev-ref HEAD)"
   echo "source:       $COMMIT$DIRTY"
   echo "target:       $TARGET (ESP32-S3)"
   echo "profile:      release"
+  echo "delivery:     $BUILD_KIND"
   echo "rustc (esp):  $(rustc +esp --version)"
   echo "cargo (esp):  $(cargo +esp --version)"
   echo "rustc (core): $(rustc +1.95.0 --version)"
@@ -73,5 +82,10 @@ DIRTY=""
   sed 's/^/  /' "$DIST/SHA256SUMS"
 } > "$DIST/BUILD.txt"
 
-echo "== done"
+echo "== done: $BUILD_KIND"
+echo "output: $DIST"
+if [[ "$DIST" == "$POC_DIR/dist-local" ]]; then
+    echo "WARNING: this directory contains a firmware built with local Wi-Fi credentials."
+    echo "Do not commit or share its BIN/ELF."
+fi
 cat "$DIST/SHA256SUMS"
