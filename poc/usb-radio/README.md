@@ -79,7 +79,7 @@ cd poc/usb-radio
 cargo test -p usb-radio-core
 
 cargo +esp build -p usb-radio-firmware --release \
-  -Z build-std=core \
+  -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
 
@@ -87,7 +87,7 @@ Flash/monitor, assuming `espflash` is installed:
 
 ```sh
 cargo +esp run -p usb-radio-firmware --release \
-  -Z build-std=core \
+  -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
 
