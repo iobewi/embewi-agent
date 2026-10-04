@@ -12,9 +12,8 @@ use reqwless::{
     client::HttpClient,
     request::{Method, RequestBuilder},
 };
-use usb_radio_core::{FILE_SIZE, FileReadStatus, FileSource, SECTOR_SIZE};
+use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE};
 
-// Stable alternative to static_cell::make_static! for the ESP toolchain used by this POC.
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
         static CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -27,8 +26,8 @@ pub const STREAM_URL: &str =
     "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
 
 const RING_CAPACITY: usize = 96 * 1024;
-const PREBUFFER_BYTES: u32 = 64 * 1024;
-const MAX_LEAD_BYTES: u32 = 80 * 1024;
+const PREBUFFER_BYTES: u64 = 64 * 1024;
+const MAX_LEAD_BYTES: u64 = 80 * 1024;
 
 pub static STREAM: SharedStream = SharedStream::new();
 
@@ -36,11 +35,19 @@ pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<StreamState>>,
 }
 
+#[derive(Clone, Copy)]
+struct Session {
+    id: u32,
+    base_abs: u64,
+    read_end_abs: u64,
+}
+
 struct StreamState {
     data: [u8; RING_CAPACITY],
-    write_offset: u32,
-    read_end: u32,
+    write_abs: u64,
     reconnects: u32,
+    next_session_id: u32,
+    session: Option<Session>,
 }
 
 impl SharedStream {
@@ -48,40 +55,81 @@ impl SharedStream {
         Self {
             inner: Mutex::new(RefCell::new(StreamState {
                 data: [0; RING_CAPACITY],
-                write_offset: 0,
-                read_end: 0,
+                write_abs: 0,
                 reconnects: 0,
+                next_session_id: 1,
+                session: None,
             })),
         }
     }
 
     pub fn is_ready(&self) -> bool {
-        self.inner.lock(|cell| cell.borrow().write_offset >= PREBUFFER_BYTES)
+        self.inner
+            .lock(|cell| cell.borrow().write_abs >= PREBUFFER_BYTES)
     }
 
-    pub fn progress(&self) -> (u32, u32) {
+    pub fn progress(&self) -> (u64, u64) {
         self.inner.lock(|cell| {
             let state = cell.borrow();
-            (state.write_offset, state.read_end)
+            let consumed = state
+                .session
+                .map(|session| session.read_end_abs)
+                .unwrap_or(0);
+            (state.write_abs, consumed)
         })
+    }
+
+    pub fn begin_session(&self) {
+        self.inner.lock(|cell| {
+            let mut state = cell.borrow_mut();
+            let retained = core::cmp::min(state.write_abs, PREBUFFER_BYTES);
+            let base_abs = state.write_abs - retained;
+            let id = state.next_session_id;
+            state.next_session_id = state.next_session_id.wrapping_add(1).max(1);
+            state.session = Some(Session {
+                id,
+                base_abs,
+                read_end_abs: base_abs,
+            });
+
+            esp_println::println!(
+                "stream: session start id={} base={} live={} retained={}",
+                id,
+                base_abs,
+                state.write_abs,
+                retained
+            );
+        });
+    }
+
+    pub fn end_session(&self) {
+        self.inner.lock(|cell| {
+            let mut state = cell.borrow_mut();
+            if let Some(session) = state.session.take() {
+                esp_println::println!(
+                    "stream: session end id={} base={} consumed={} live={}",
+                    session.id,
+                    session.base_abs,
+                    session.read_end_abs,
+                    state.write_abs
+                );
+            }
+        });
     }
 
     fn writable(&self) -> usize {
         self.inner.lock(|cell| {
             let state = cell.borrow();
-            if state.write_offset >= FILE_SIZE {
-                return 0;
+            match state.session {
+                None => 2048,
+                Some(session) => {
+                    let lead = state.write_abs.saturating_sub(session.read_end_abs);
+                    core::cmp::min(
+                        MAX_LEAD_BYTES.saturating_sub(lead) as usize,
+                        2048,
+                    )
+                }
             }
-
-            let max_lead = if state.read_end == 0 {
-                PREBUFFER_BYTES
-            } else {
-                MAX_LEAD_BYTES
-            };
-            let lead = state.write_offset.saturating_sub(state.read_end);
-            let lead_room = max_lead.saturating_sub(lead);
-            let file_room = FILE_SIZE - state.write_offset;
-            core::cmp::min(lead_room, file_room) as usize
         })
     }
 
@@ -89,29 +137,29 @@ impl SharedStream {
         self.inner.lock(|cell| {
             let mut state = cell.borrow_mut();
 
-            let max_lead = if state.read_end == 0 {
-                PREBUFFER_BYTES
-            } else {
-                MAX_LEAD_BYTES
+            let allowed = match state.session {
+                None => input.len(),
+                Some(session) => {
+                    let lead = state.write_abs.saturating_sub(session.read_end_abs);
+                    core::cmp::min(
+                        input.len(),
+                        MAX_LEAD_BYTES.saturating_sub(lead) as usize,
+                    )
+                }
             };
-            let lead = state.write_offset.saturating_sub(state.read_end);
-            let allowed = core::cmp::min(
-                max_lead.saturating_sub(lead),
-                FILE_SIZE.saturating_sub(state.write_offset),
-            ) as usize;
-            let len = core::cmp::min(input.len(), allowed);
-            if len == 0 {
+
+            if allowed == 0 {
                 return 0;
             }
 
-            let pos = state.write_offset as usize % RING_CAPACITY;
-            let first = core::cmp::min(len, RING_CAPACITY - pos);
+            let pos = state.write_abs as usize % RING_CAPACITY;
+            let first = core::cmp::min(allowed, RING_CAPACITY - pos);
             state.data[pos..pos + first].copy_from_slice(&input[..first]);
-            if first < len {
-                state.data[..len - first].copy_from_slice(&input[first..len]);
+            if first < allowed {
+                state.data[..allowed - first].copy_from_slice(&input[first..allowed]);
             }
-            state.write_offset += len as u32;
-            len
+            state.write_abs += allowed as u64;
+            allowed
         })
     }
 
@@ -123,19 +171,28 @@ impl SharedStream {
         })
     }
 
-    fn read_file_sector(&self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
-        let start = index.saturating_mul(SECTOR_SIZE as u32);
-        let end = start.saturating_add(SECTOR_SIZE as u32);
-
+    fn read_file_sector(
+        &self,
+        index: u32,
+        out: &mut [u8; SECTOR_SIZE],
+    ) -> FileReadStatus {
         self.inner.lock(|cell| {
             let mut state = cell.borrow_mut();
+            let Some(mut session) = state.session else {
+                out.fill(0);
+                return FileReadStatus::Pending;
+            };
 
-            if end > state.write_offset {
+            let file_offset = index as u64 * SECTOR_SIZE as u64;
+            let start = session.base_abs.saturating_add(file_offset);
+            let end = start.saturating_add(SECTOR_SIZE as u64);
+
+            if end > state.write_abs {
                 out.fill(0);
                 return FileReadStatus::Pending;
             }
 
-            let oldest = state.write_offset.saturating_sub(RING_CAPACITY as u32);
+            let oldest = state.write_abs.saturating_sub(RING_CAPACITY as u64);
             if start < oldest {
                 out.fill(0);
                 return FileReadStatus::Expired;
@@ -148,7 +205,8 @@ impl SharedStream {
                 out[first..].copy_from_slice(&state.data[..SECTOR_SIZE - first]);
             }
 
-            state.read_end = core::cmp::max(state.read_end, end);
+            session.read_end_abs = core::cmp::max(session.read_end_abs, end);
+            state.session = Some(session);
             FileReadStatus::Ready
         })
     }
@@ -166,6 +224,14 @@ impl SharedStreamSource {
 }
 
 impl FileSource for SharedStreamSource {
+    fn begin_session(&mut self) {
+        self.stream.begin_session();
+    }
+
+    fn end_session(&mut self) {
+        self.stream.end_session();
+    }
+
     fn read_file_sector(
         &mut self,
         index: u32,
@@ -189,15 +255,12 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
     }
 
     loop {
-        if stream.progress().0 >= FILE_SIZE {
-            esp_println::println!("stream: virtual RADIO.MP3 is full");
-            loop {
-                Timer::after(Duration::from_secs(60)).await;
-            }
-        }
-
         let reconnect = stream.mark_reconnect();
-        esp_println::println!("stream: connecting attempt={} url={}", reconnect, STREAM_URL);
+        esp_println::println!(
+            "stream: connecting attempt={} url={}",
+            reconnect,
+            STREAM_URL
+        );
 
         let mut client = HttpClient::new(&tcp_client, &dns_client);
         let mut header_buf = [0u8; 2048];
@@ -211,11 +274,11 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
             }
         };
 
-        // reqwless already sends `Host` from the URL; a second one makes the server answer 400.
+        // reqwless already provides Host from the URL.
         let mut request = request.headers(&[
             ("Connection", "close"),
             ("Icy-MetaData", "0"),
-            ("User-Agent", "usb-radio-poc/0.2"),
+            ("User-Agent", "usb-radio-poc/0.3"),
         ]);
 
         let response = match request.send(&mut header_buf).await {
@@ -243,18 +306,10 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
 
         loop {
             while stream.writable() == 0 {
-                if stream.progress().0 >= FILE_SIZE {
-                    break;
-                }
                 Timer::after(Duration::from_millis(5)).await;
             }
 
-            if stream.progress().0 >= FILE_SIZE {
-                break;
-            }
-
-            let room = stream.writable();
-            let want = core::cmp::min(room, buf.len());
+            let want = core::cmp::min(stream.writable(), buf.len());
             if want == 0 {
                 continue;
             }
@@ -265,15 +320,25 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
                     break;
                 }
                 Ok(n) => {
+                    let before = stream.progress().0;
                     let pushed = stream.push(&buf[..n]);
                     let (written, consumed) = stream.progress();
-                    if written == PREBUFFER_BYTES || written % (64 * 1024) < pushed as u32 {
+
+                    let before_bucket = before / (64 * 1024);
+                    let after_bucket = written / (64 * 1024);
+                    if before < PREBUFFER_BYTES && written >= PREBUFFER_BYTES
+                        || after_bucket != before_bucket
+                    {
                         esp_println::println!(
-                            "stream: buffered written={} consumed={} lead={}",
+                            "stream: live={} consumed={} lead={}",
                             written,
                             consumed,
                             written.saturating_sub(consumed)
                         );
+                    }
+
+                    if pushed == 0 {
+                        Timer::after(Duration::from_millis(5)).await;
                     }
                 }
                 Err(err) => {
