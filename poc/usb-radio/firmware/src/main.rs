@@ -15,7 +15,9 @@ use embassy_futures::join::join;
 use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_usb::{Builder, Handler};
+use embassy_usb::Builder;
+#[cfg(feature = "usb-debug")]
+use embassy_usb::Handler;
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
@@ -46,9 +48,11 @@ macro_rules! mk_static {
     }};
 }
 
-/// Logs USB bus lifecycle events to show how far a host's enumeration gets.
+/// Logs USB bus lifecycle events to show how far a host's enumeration gets (`usb-debug`).
+#[cfg(feature = "usb-debug")]
 struct BusLog;
 
+#[cfg(feature = "usb-debug")]
 impl Handler for BusLog {
     fn enabled(&mut self, enabled: bool) {
         esp_println::println!("usb: enabled={}", enabled);
@@ -147,6 +151,7 @@ async fn main(spawner: Spawner) {
     let mut control_buf = [0u8; 64];
 
     let mut msc_state = MscState::new();
+    #[cfg(feature = "usb-debug")]
     let mut bus_log = BusLog;
 
     let mut builder = Builder::new(
@@ -158,6 +163,7 @@ async fn main(spawner: Spawner) {
         &mut control_buf,
     );
 
+    #[cfg(feature = "usb-debug")]
     builder.handler(&mut bus_log);
 
     let mut msc = MscClass::new(&mut builder, &mut msc_state);

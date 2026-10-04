@@ -92,6 +92,7 @@ impl Handler for Control {
 
         match req.request {
             MSC_REQ_GET_MAX_LUN if req.value == 0 && req.length == 1 => {
+                #[cfg(feature = "usb-debug")]
                 esp_println::println!("msc: get max lun");
                 buf[0] = 0; // one LUN
                 Some(InResponse::Accepted(&buf[..1]))
@@ -241,7 +242,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 continue;
             };
 
-            if cbw.command[0] != SCSI_READ_10 && cmds_logged < 24 {
+            if cfg!(feature = "usb-debug") && cbw.command[0] != SCSI_READ_10 && cmds_logged < 24 {
                 cmds_logged += 1;
                 esp_println::println!(
                     "msc: cmd op=0x{:02x} xfer={} tag={}",

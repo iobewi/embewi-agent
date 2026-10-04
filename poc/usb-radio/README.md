@@ -247,10 +247,12 @@ msc: connected
 msc: READ10 lba=... blocks=...
 ```
 
-Bus lifecycle (shows how far a host's enumeration gets): `usb: enabled=true`,
-`usb: bus reset`, `usb: addressed=N`, `usb: configured=true`, `usb: suspended=...`.
-No `bus reset` = the host never drove the bus; reset/addressed without `configured=true`
-= enumeration stops before SET_CONFIGURATION.
+Only with `--features usb-debug` (not in the delivered image): bus lifecycle
+(`usb: enabled=true`, `usb: bus reset`, `usb: addressed=N`, `usb: configured=true`,
+`usb: suspended=...`), `msc: cmd op=0x.. xfer=.. tag=..` (first 24 non-READ10 commands per
+session), `msc: get max lun`, and embassy-usb control-request tracing. No `bus reset` = the
+host never drove the bus; reset/addressed without `configured=true` = enumeration stops
+before SET_CONFIGURATION.
 
 Other lines: `msc: bulk-only reset`, `msc: unsupported SCSI opcode=0x.. xfer=..`
 (answered with CSW status 1 + sense ILLEGAL REQUEST), `msc: disconnected`.

@@ -9,5 +9,6 @@ runner = "espflash flash --monitor"
 build-std = ["core"]
 
 [env]
-# Only embassy-usb control-request tracing (enumeration debugging).
+# iobewi-wifi-manager connection log; embassy-usb control tracing only exists with
+# `--features usb-debug`.
 ESP_LOG = "embassy_usb=trace,iobewi_wifi_manager=info"
