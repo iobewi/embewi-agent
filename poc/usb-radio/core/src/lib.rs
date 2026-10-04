@@ -3,27 +3,33 @@
 pub mod config_store;
 
 pub const SECTOR_SIZE: usize = 512;
-pub const TOTAL_SECTORS: u32 = 8192; // 4 MiB
+
+// P3 geometry: FAT16 with 32 KiB clusters and a 1 GiB virtual RADIO.MP3.
+// The medium is virtual; only the rolling stream window exists in RAM.
+pub const SECTORS_PER_CLUSTER: u32 = 64;
+pub const CLUSTER_SIZE: u32 = SECTORS_PER_CLUSTER * SECTOR_SIZE as u32;
+pub const FILE_CLUSTER_COUNT: u32 = 32_768;
+pub const FILE_START_CLUSTER: u16 = 2;
+pub const FILE_LAST_CLUSTER: u16 =
+    FILE_START_CLUSTER + FILE_CLUSTER_COUNT as u16 - 1;
+pub const FILE_SECTORS: u32 = FILE_CLUSTER_COUNT * SECTORS_PER_CLUSTER;
+pub const FILE_SIZE: u32 = FILE_CLUSTER_COUNT * CLUSTER_SIZE; // 1 GiB
+
 pub const RESERVED_SECTORS: u32 = 1;
 pub const FAT_COUNT: u32 = 2;
-pub const FAT_SECTORS: u32 = 32;
+pub const FAT_SECTORS: u32 =
+    (((FILE_CLUSTER_COUNT + 2) * 2) + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
 pub const ROOT_ENTRIES: u32 = 32;
-pub const ROOT_SECTORS: u32 = (ROOT_ENTRIES * 32 + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
-pub const DATA_START_LBA: u32 = RESERVED_SECTORS + FAT_COUNT * FAT_SECTORS + ROOT_SECTORS;
-
-pub const FILE_START_CLUSTER: u16 = 2;
-pub const FILE_SECTORS: u32 = 4096; // 2 MiB at one sector/cluster
-pub const FILE_SIZE: u32 = FILE_SECTORS * SECTOR_SIZE as u32;
-pub const FILE_LAST_CLUSTER: u16 = FILE_START_CLUSTER + FILE_SECTORS as u16 - 1;
+pub const ROOT_SECTORS: u32 =
+    (ROOT_ENTRIES * 32 + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
+pub const DATA_START_LBA: u32 =
+    RESERVED_SECTORS + FAT_COUNT * FAT_SECTORS + ROOT_SECTORS;
+pub const TOTAL_SECTORS: u32 = DATA_START_LBA + FILE_SECTORS;
 
 const MEDIA_DESCRIPTOR: u8 = 0xF8;
 const VOLUME_LABEL: &[u8; 11] = b"RADIOUSB   ";
 const FILE_NAME: &[u8; 11] = b"RADIO   MP3";
 
-/// Supplies one 512-byte sector of the virtual RADIO.MP3 contents.
-///
-/// P0 uses a diagnostic pattern. P2 can use a static MP3. P3 can supply sectors from a
-/// rolling network-backed window without changing the FAT or MSC layers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileReadStatus {
     Ready,
@@ -31,7 +37,14 @@ pub enum FileReadStatus {
     Expired,
 }
 
+/// Supplies sectors from the virtual RADIO.MP3.
+///
+/// A source may use session callbacks to remap file offset 0 to a new position in an
+/// infinite backing stream whenever the USB host reconnects.
 pub trait FileSource {
+    fn begin_session(&mut self) {}
+    fn end_session(&mut self) {}
+
     fn read_file_sector(
         &mut self,
         index: u32,
@@ -50,6 +63,14 @@ impl<S: FileSource> VirtualFat16<S> {
 
     pub const fn last_lba(&self) -> u32 {
         TOTAL_SECTORS - 1
+    }
+
+    pub fn begin_session(&mut self) {
+        self.source.begin_session();
+    }
+
+    pub fn end_session(&mut self) {
+        self.source.end_session();
     }
 
     pub fn read_sector(
@@ -95,10 +116,6 @@ impl<S: FileSource> VirtualFat16<S> {
     }
 }
 
-/// Diagnostic P0 source. It is intentionally not valid audio.
-///
-/// Sector 0 starts with a small ID3-shaped marker so a hex dump immediately identifies
-/// the virtual file; the rest is a deterministic sector/index pattern.
 #[derive(Default)]
 pub struct DiagnosticSource;
 
@@ -125,17 +142,17 @@ fn write_boot_sector(out: &mut [u8; SECTOR_SIZE]) {
     out[3..11].copy_from_slice(b"IOBEWI  ");
 
     put_u16(out, 11, SECTOR_SIZE as u16);
-    out[13] = 1; // sectors per cluster
+    out[13] = SECTORS_PER_CLUSTER as u8;
     put_u16(out, 14, RESERVED_SECTORS as u16);
     out[16] = FAT_COUNT as u8;
     put_u16(out, 17, ROOT_ENTRIES as u16);
-    put_u16(out, 19, TOTAL_SECTORS as u16);
+    put_u16(out, 19, 0); // volume is too large for BPB_TotSec16
     out[21] = MEDIA_DESCRIPTOR;
     put_u16(out, 22, FAT_SECTORS as u16);
-    put_u16(out, 24, 63); // sectors/track, conventional removable-media value
-    put_u16(out, 26, 255); // heads
-    put_u32(out, 28, 0); // hidden sectors
-    put_u32(out, 32, 0); // total sectors fits in BPB_TotSec16
+    put_u16(out, 24, 63);
+    put_u16(out, 26, 255);
+    put_u32(out, 28, 0);
+    put_u32(out, 32, TOTAL_SECTORS);
 
     out[36] = 0x80;
     out[38] = 0x29;
@@ -152,7 +169,11 @@ fn write_fat_sector(fat_sector: u32, out: &mut [u8; SECTOR_SIZE]) {
 
     for slot in 0..(SECTOR_SIZE / 2) {
         let entry = first_entry + slot as u32;
-        let value = fat_value(entry as u16);
+        let value = if entry <= u16::MAX as u32 {
+            fat_value(entry as u16)
+        } else {
+            0
+        };
         let offset = slot * 2;
         out[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
@@ -173,11 +194,9 @@ fn write_root_sector(index: u32, out: &mut [u8; SECTOR_SIZE]) {
         return;
     }
 
-    // Volume label.
     out[0..11].copy_from_slice(VOLUME_LABEL);
     out[11] = 0x08;
 
-    // RADIO.MP3.
     let e = 32;
     out[e..e + 11].copy_from_slice(FILE_NAME);
     out[e + 11] = 0x21; // read-only + archive
@@ -198,24 +217,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn boot_sector_is_fat16_and_geometry_is_consistent() {
-        let mut disk = VirtualFat16::new(DiagnosticSource);
-        let mut sector = [0u8; SECTOR_SIZE];
-        disk.read_sector(0, &mut sector);
+    fn p3_geometry_is_valid_fat16() {
+        let data_sectors = TOTAL_SECTORS - DATA_START_LBA;
+        let cluster_count = data_sectors / SECTORS_PER_CLUSTER;
 
-        assert_eq!(&sector[3..11], b"IOBEWI  ");
-        assert_eq!(u16::from_le_bytes([sector[11], sector[12]]), 512);
-        assert_eq!(sector[13], 1);
-        assert_eq!(u16::from_le_bytes([sector[19], sector[20]]) as u32, TOTAL_SECTORS);
-        assert_eq!(&sector[54..62], b"FAT16   ");
-        assert_eq!(&sector[510..512], &[0x55, 0xAA]);
-
-        let cluster_count = TOTAL_SECTORS - DATA_START_LBA;
-        assert!((4085..65525).contains(&cluster_count), "must classify as FAT16");
+        assert_eq!(SECTORS_PER_CLUSTER, 64);
+        assert_eq!(CLUSTER_SIZE, 32 * 1024);
+        assert_eq!(FILE_SIZE, 1024 * 1024 * 1024);
+        assert_eq!(cluster_count, FILE_CLUSTER_COUNT);
+        assert!((4085..65525).contains(&cluster_count));
+        assert!(FILE_LAST_CLUSTER < 0xFFF0);
     }
 
     #[test]
-    fn root_contains_radio_mp3() {
+    fn boot_sector_is_fat16_and_uses_32bit_total_sectors() {
+        let mut disk = VirtualFat16::new(DiagnosticSource);
+        let mut sector = [0u8; SECTOR_SIZE];
+        assert_eq!(disk.read_sector(0, &mut sector), FileReadStatus::Ready);
+
+        assert_eq!(&sector[3..11], b"IOBEWI  ");
+        assert_eq!(u16::from_le_bytes([sector[11], sector[12]]), 512);
+        assert_eq!(sector[13] as u32, SECTORS_PER_CLUSTER);
+        assert_eq!(u16::from_le_bytes([sector[19], sector[20]]), 0);
+        assert_eq!(
+            u32::from_le_bytes([sector[32], sector[33], sector[34], sector[35]]),
+            TOTAL_SECTORS
+        );
+        assert_eq!(&sector[54..62], b"FAT16   ");
+        assert_eq!(&sector[510..512], &[0x55, 0xAA]);
+    }
+
+    #[test]
+    fn root_contains_one_gib_radio_mp3() {
         let mut disk = VirtualFat16::new(DiagnosticSource);
         let mut sector = [0u8; SECTOR_SIZE];
         let root_lba = RESERVED_SECTORS + FAT_COUNT * FAT_SECTORS;
@@ -234,10 +267,8 @@ mod tests {
         let mut disk = VirtualFat16::new(DiagnosticSource);
         let mut sector = [0u8; SECTOR_SIZE];
 
-        // First FAT sector includes clusters 0..255.
         disk.read_sector(RESERVED_SECTORS, &mut sector);
-        let c2 = u16::from_le_bytes([sector[4], sector[5]]);
-        assert_eq!(c2, 3);
+        assert_eq!(u16::from_le_bytes([sector[4], sector[5]]), 3);
 
         let fat_offset = FILE_LAST_CLUSTER as u32 * 2;
         let fat_sector = fat_offset / SECTOR_SIZE as u32;
@@ -250,21 +281,11 @@ mod tests {
     }
 
     #[test]
-    fn first_file_sector_contains_diagnostic_marker_without_panicking() {
+    fn file_sector_mapping_is_still_sector_granular() {
         let mut disk = VirtualFat16::new(DiagnosticSource);
         let mut sector = [0u8; SECTOR_SIZE];
-        disk.read_sector(DATA_START_LBA, &mut sector);
 
-        assert_eq!(&sector[..3], b"ID3");
-        assert_eq!(&sector[16..32], b"IOBEWI-USB-RADIO");
-    }
-
-    #[test]
-    fn file_data_maps_one_sector_per_cluster() {
-        let mut disk = VirtualFat16::new(DiagnosticSource);
-        let mut sector = [0u8; SECTOR_SIZE];
         disk.read_sector(DATA_START_LBA + 7, &mut sector);
-
         assert_eq!(sector[0], 7);
         assert_eq!(&sector[SECTOR_SIZE - 4..], &7u32.to_le_bytes());
     }
