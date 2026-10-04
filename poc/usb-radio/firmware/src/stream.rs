@@ -25,7 +25,6 @@ use mk_static;
 
 pub const STREAM_URL: &str =
     "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
-const STREAM_HOST: &str = "icecast.radiofrance.fr";
 
 const RING_CAPACITY: usize = 96 * 1024;
 const PREBUFFER_BYTES: u32 = 64 * 1024;
@@ -212,8 +211,8 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
             }
         };
 
+        // reqwless already sends `Host` from the URL; a second one makes the server answer 400.
         let mut request = request.headers(&[
-            ("Host", STREAM_HOST),
             ("Connection", "close"),
             ("Icy-MetaData", "0"),
             ("User-Agent", "usb-radio-poc/0.2"),
