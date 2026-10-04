@@ -97,9 +97,60 @@ impl Handler for Control {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ReadStats {
+    commands: u32,
+    blocks: u64,
+    min_lba: u32,
+    max_lba: u32,
+}
+
+impl ReadStats {
+    const fn new() -> Self {
+        Self {
+            commands: 0,
+            blocks: 0,
+            min_lba: u32::MAX,
+            max_lba: 0,
+        }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    fn record(&mut self, lba: u32, blocks: u32) -> bool {
+        self.commands = self.commands.saturating_add(1);
+        self.blocks = self.blocks.saturating_add(blocks as u64);
+        self.min_lba = core::cmp::min(self.min_lba, lba);
+        self.max_lba = core::cmp::max(
+            self.max_lba,
+            lba.saturating_add(blocks.saturating_sub(1)),
+        );
+        self.commands % 256 == 0
+    }
+
+    fn log(&self, prefix: &str) {
+        if self.commands == 0 {
+            esp_println::println!("msc: {} reads=0", prefix);
+        } else {
+            esp_println::println!(
+                "msc: {} reads={} blocks={} bytes={} lba={}..{}",
+                prefix,
+                self.commands,
+                self.blocks,
+                self.blocks * SECTOR_SIZE as u64,
+                self.min_lba,
+                self.max_lba
+            );
+        }
+    }
+}
+
 pub struct MscClass<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
+    stats: ReadStats,
 }
 
 impl<'d, D: Driver<'d>> MscClass<'d, D> {
@@ -128,7 +179,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         });
         builder.handler(control);
 
-        Self { read_ep, write_ep }
+        Self {
+            read_ep,
+            write_ep,
+            stats: ReadStats::new(),
+        }
     }
 
     pub async fn run<S: FileSource>(
@@ -137,14 +192,25 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     ) -> Result<(), EndpointError> {
         loop {
             self.read_ep.wait_enabled().await;
+            self.stats.reset();
+            disk.begin_session();
             esp_println::println!("msc: connected");
 
             match self.run_connected(disk).await {
-                Ok(()) => {}
+                Ok(()) => {
+                    self.stats.log("session end");
+                    disk.end_session();
+                }
                 Err(EndpointError::Disabled) => {
+                    self.stats.log("session end");
+                    disk.end_session();
                     esp_println::println!("msc: disconnected");
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.stats.log("session error");
+                    disk.end_session();
+                    return Err(e);
+                }
             }
         }
     }
@@ -227,7 +293,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                     ]);
                     let blocks = u16::from_be_bytes([cbw.command[7], cbw.command[8]]) as u32;
 
-                    esp_println::println!("msc: READ10 lba={} blocks={}", lba, blocks);
+                    if self.stats.record(lba, blocks) {
+                        self.stats.log("progress");
+                    }
 
                     if lba >= TOTAL_SECTORS || blocks > TOTAL_SECTORS - lba {
                         sense = (SENSE_ILLEGAL_REQUEST, ASC_LBA_OUT_OF_RANGE);
