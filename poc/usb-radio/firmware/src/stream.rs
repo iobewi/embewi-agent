@@ -287,12 +287,3 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
         Timer::after(Duration::from_secs(1)).await;
     }
 }
-
-// Stable alternative to static_cell::make_static! for the ESP toolchain used by this POC.
-macro_rules! mk_static {
-    ($t:ty, $val:expr) => {{
-        static CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        CELL.uninit().write($val)
-    }};
-}
-use mk_static;
