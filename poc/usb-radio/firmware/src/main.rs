@@ -65,6 +65,13 @@ async fn main(_spawner: Spawner) {
     usb_config.product = Some("USB Radio POC");
     usb_config.serial_number = Some("RADIO-POC-0001");
     usb_config.max_power = 100;
+    // Plain single-function MSC like a USB stick: class defined per interface, no IAD.
+    // embassy-usb's default (0xEF/0x02/0x01 + IAD) was rejected by the Metronic right
+    // after reading the 40-byte configuration descriptor.
+    usb_config.composite_with_iads = false;
+    usb_config.device_class = 0x00;
+    usb_config.device_sub_class = 0x00;
+    usb_config.device_protocol = 0x00;
 
     let mut config_descriptor = [0u8; 256];
     let mut bos_descriptor = [0u8; 256];
