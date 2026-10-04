@@ -51,11 +51,11 @@ player reads sequentially, reads ahead, seeks, or rereads old sectors.
 At this stage the contents of `RADIO.MP3` are diagnostic bytes, not playable audio.
 The acceptance criterion is enumeration + FAT mount + file discovery.
 
-### P2 — live HTTP MP3 source
+### P2 — live HTTP MP3 source — PASS
 
 P1 proved on real hardware that the Metronic enumerates the device, finds `RADIO.MP3`,
-shows `MP3` / `F001` and starts its playback counter. P2 therefore goes directly to
-the real Radio France MP3 stream instead of adding an intermediate static-MP3 stage.
+shows `MP3` / `F001` and starts its playback counter. P2 then proved the complete live
+path on the real Metronic: Radio France audio is audible without perceptible lag.
 
 The ESP32-S3:
 
@@ -81,11 +81,55 @@ Acceptance:
 - Metronic shows `MP3` / `F001`;
 - the Radio France stream is audible.
 
-### P3 — stream hardening
+### P3 — continuous stream and USB-session rebasing
 
-Only after P2 hardware PASS: extend virtual duration, handle long runs/reconnects,
-characterize underruns/backward reads, and tune buffer/FAT geometry if measurements
-justify it.
+P3 removes the measured ~131 s P2 limit without turning the ESP into a huge storage
+device.
+
+The HTTP stream now uses a monotonic absolute byte position and runs continuously. Each
+USB MSC connection creates a new session:
+
+```text
+infinite HTTP stream
+        |
+        | rolling 96 KiB RAM window
+        v
+current live position
+        |
+        +-- retain about 64 KiB before "now"
+        |
+        v
+USB session base = RADIO.MP3 offset 0
+```
+
+If the Metronic disconnects and re-enumerates, offset 0 is therefore mapped to a fresh
+position near the current live stream instead of the expired bytes from the first boot.
+
+The virtual FAT16 geometry is also expanded:
+
+- sector: 512 bytes;
+- cluster: 32 KiB (64 sectors);
+- `RADIO.MP3`: 1 GiB virtual size;
+- about 18 h 38 min at 128 kbit/s before the host reaches the logical EOF;
+- FAT entries are still generated on demand; the 1 GiB file is not stored in RAM/flash.
+
+The network producer remains bounded to 80 KiB ahead of the USB consumer while a session
+is active. With no USB session, the live stream keeps moving and the ring retains only
+the latest window.
+
+MSC logging is aggregated (one progress line per 256 READ(10) commands) instead of one
+blocking UART line per read. Embassy USB internal trace is disabled by default and can be
+restored with the `usb-debug` Cargo feature.
+
+P3 hardware acceptance:
+
+- provisioned Wi-Fi reconnects normally;
+- Radio France becomes audible as in P2;
+- playback continues beyond the former ~2 min 10 s boundary;
+- no `stream: ... full` condition exists;
+- after USB unplug/replug or host re-enumeration, a new `stream: session start ...`
+  appears and playback starts from the current stream window rather than expired offset 0;
+- no repeated `stream data expired` appears in normal forward playback.
 
 ## Build
 
@@ -191,7 +235,7 @@ caused solely by regenerating `dist/`.
 ### Expected boot log
 
 ```text
-usb-radio POC: P2 live HTTP MP3 -> USB MSC
+usb-radio POC: P3 continuous HTTP MP3 -> USB MSC
 usb-radio POC: DP=GPIO20 DM=GPIO19
 stream: http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3
 ```
@@ -238,6 +282,8 @@ USB-UART bridge port and assume it is the native OTG peripheral.
 
 ## Important limitation
 
-P2 deliberately keeps the original 2 MiB virtual file and uses a bounded rolling RAM
-window. It validates the bridge, not infinite playback. Extending the virtual duration
-and hardening reconnect/seek behaviour belongs to P3 after the live-audio hardware gate.
+P3 provides a long-lived view, not a mathematically infinite FAT file. One USB session
+exposes 1 GiB (about 18 h 38 min at the measured ~128 kbit/s). A new USB session rebases
+the file to the current live window. The rolling RAM window remains 96 KiB, so very large
+backward seeks are intentionally unsupported; the measured Metronic access pattern is
+forward-only.
