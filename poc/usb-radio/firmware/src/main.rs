@@ -134,7 +134,9 @@ async fn main(spawner: Spawner) {
     usb_config.manufacturer = Some("IOBEWI");
     usb_config.product = Some("USB Radio POC");
     usb_config.serial_number = Some("RADIO-POC-0002");
-    usb_config.max_power = 100;
+    // Bus-powered by the player: Wi-Fi bursts draw far more than the former 100 mA declared.
+    // 500 mA is the USB 2.0 maximum for a bus-powered device.
+    usb_config.max_power = 500;
     usb_config.composite_with_iads = false;
     usb_config.device_class = 0x00;
     usb_config.device_sub_class = 0x00;
