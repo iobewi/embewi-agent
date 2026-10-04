@@ -2,6 +2,7 @@
 /target/
 /boot/target/
 web/firmware/**/*.bin
+/poc/usb-radio/dist-local/
 
 # Secrets / per-node config (ne jamais committer)
 nvs_*.csv
