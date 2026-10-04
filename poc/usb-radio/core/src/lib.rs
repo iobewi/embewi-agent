@@ -22,8 +22,19 @@ const FILE_NAME: &[u8; 11] = b"RADIO   MP3";
 ///
 /// P0 uses a diagnostic pattern. P2 can use a static MP3. P3 can supply sectors from a
 /// rolling network-backed window without changing the FAT or MSC layers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileReadStatus {
+    Ready,
+    Pending,
+    Expired,
+}
+
 pub trait FileSource {
-    fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]);
+    fn read_file_sector(
+        &mut self,
+        index: u32,
+        out: &mut [u8; SECTOR_SIZE],
+    ) -> FileReadStatus;
 }
 
 pub struct VirtualFat16<S> {
@@ -39,16 +50,20 @@ impl<S: FileSource> VirtualFat16<S> {
         TOTAL_SECTORS - 1
     }
 
-    pub fn read_sector(&mut self, lba: u32, out: &mut [u8; SECTOR_SIZE]) {
+    pub fn read_sector(
+        &mut self,
+        lba: u32,
+        out: &mut [u8; SECTOR_SIZE],
+    ) -> FileReadStatus {
         out.fill(0);
 
         if lba >= TOTAL_SECTORS {
-            return;
+            return FileReadStatus::Expired;
         }
 
         if lba == 0 {
             write_boot_sector(out);
-            return;
+            return FileReadStatus::Ready;
         }
 
         let fat1_start = RESERVED_SECTORS;
@@ -57,22 +72,24 @@ impl<S: FileSource> VirtualFat16<S> {
 
         if (fat1_start..fat1_start + FAT_SECTORS).contains(&lba) {
             write_fat_sector(lba - fat1_start, out);
-            return;
+            return FileReadStatus::Ready;
         }
 
         if (fat2_start..fat2_start + FAT_SECTORS).contains(&lba) {
             write_fat_sector(lba - fat2_start, out);
-            return;
+            return FileReadStatus::Ready;
         }
 
         if (root_start..root_start + ROOT_SECTORS).contains(&lba) {
             write_root_sector(lba - root_start, out);
-            return;
+            return FileReadStatus::Ready;
         }
 
         if (DATA_START_LBA..DATA_START_LBA + FILE_SECTORS).contains(&lba) {
-            self.source.read_file_sector(lba - DATA_START_LBA, out);
+            return self.source.read_file_sector(lba - DATA_START_LBA, out);
         }
+
+        FileReadStatus::Ready
     }
 }
 
@@ -84,7 +101,11 @@ impl<S: FileSource> VirtualFat16<S> {
 pub struct DiagnosticSource;
 
 impl FileSource for DiagnosticSource {
-    fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) {
+    fn read_file_sector(
+        &mut self,
+        index: u32,
+        out: &mut [u8; SECTOR_SIZE],
+    ) -> FileReadStatus {
         out.fill((index & 0xff) as u8);
 
         if index == 0 {
@@ -93,6 +114,7 @@ impl FileSource for DiagnosticSource {
         }
 
         out[SECTOR_SIZE - 4..].copy_from_slice(&index.to_le_bytes());
+        FileReadStatus::Ready
     }
 }
 
