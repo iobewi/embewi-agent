@@ -133,30 +133,36 @@ Board: ESP32-S3. Two different USB connectors are involved:
 The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
 console; logs (`esp-println`, `uart` feature) come out on the USB-UART port only.
 
-The committed `dist/` artefacts are still the P1 reference image. P2 embeds local Wi-Fi
-credentials at build time, so a P2 binary must be rebuilt locally and must not be committed
-with credentials.
+The committed `dist/` artefacts are the credential-free P1 reference image and are never
+overwritten by a credentialed P2 build.
 
-Artefacts are in `dist/` (see `dist/BUILD.txt` for provenance, `dist/SHA256SUMS`):
-`usb-radio-poc-esp32s3.bin` is a single merged image (bootloader + partition table + app)
-written at `0x0`; `usb-radio-poc-esp32s3.elf` is the matching ELF.
+`scripts/build-release.sh` routes outputs as follows:
+
+- no `WIFI_SSID` / `WIFI_PASSWORD`: `dist/` (versioned reference build);
+- either Wi-Fi variable set: `dist-local/` (ignored by Git, contains local credentials).
+
+Never share a P2 BIN/ELF built with credentials.
+
+The flashable image is a single merged image (bootloader + partition table + app) written
+at `0x0`; the matching ELF is emitted beside it.
 
 ### Browser (ESP Web Tools)
 
-```sh
-cd poc/usb-radio/dist
-python3 -m http.server 8080      # or: http-server . -p 8080
-```
+For P1, serve `poc/usb-radio/dist/`.
 
-Open `http://localhost:8080` in Chrome/Edge (Web Serial; HTTPS or localhost required),
-click **Flash the POC**, pick the USB-UART serial port. Tick "Erase" for a clean install.
-After flashing, **Logs & Console** in the dialog is the monitor.
+For P2, build locally first, then use the generated image from
+`poc/usb-radio/dist-local/usb-radio-poc-esp32s3.bin`. If your local web flasher expects
+the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there manually; that
+directory is ignored by Git.
+
+Do not copy or publish the P2 ELF/BIN outside local ignored paths.
 
 ### Command line
 
 ```sh
-poc/usb-radio/scripts/flash.sh            # espflash write-bin 0x0 + espflash monitor
+poc/usb-radio/scripts/flash.sh            # dist-local/ when present, else P1 dist/
 poc/usb-radio/scripts/flash.sh --port /dev/ttyUSB0
+poc/usb-radio/scripts/flash.sh --p1       # force versioned P1 reference image
 ```
 
 The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
@@ -168,10 +174,13 @@ The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
 poc/usb-radio/scripts/build-release.sh
 ```
 
-Runs the core tests, the release build (real link), `espflash save-image --merge`, and
-regenerates `dist/`. Run it after committing source changes: `SOURCE_DATE_EPOCH` is the
-date of the last commit touching the POC sources (it feeds the build date of the
-ESP app descriptor), so the output is byte-identical for a given source commit.
+Runs the core tests, the release build (real link), and `espflash save-image --merge`.
+Credential-free builds regenerate `dist/`; credentialed P2 builds write only to the
+Git-ignored `dist-local/`.
+
+`SOURCE_DATE_EPOCH` is the date of the last commit touching the POC sources, excluding
+both delivery directories. This also avoids the old false "uncommitted changes" report
+caused solely by regenerating `dist/`.
 
 ### Expected boot log
 
