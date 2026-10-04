@@ -35,7 +35,7 @@ esp-rtos = { version = "0.4.0", features = [
   "esp-radio",
   "log-04",
 ] }
-esp-radio = { version = "=1.0.0-beta.2", features = [
+esp-radio = { version = "=1.0.0-beta.1", features = [
   "esp32s3",
   "log-04",
   "unstable",
