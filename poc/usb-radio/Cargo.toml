@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["core", "firmware"]
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = true

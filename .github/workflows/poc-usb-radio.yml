@@ -1,0 +1,41 @@
+name: POC USB Radio
+
+on:
+  push:
+    branches:
+      - poc/usb-radio-stream
+    paths:
+      - "poc/usb-radio/**"
+      - ".github/workflows/poc-usb-radio.yml"
+  pull_request:
+    paths:
+      - "poc/usb-radio/**"
+      - ".github/workflows/poc-usb-radio.yml"
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: poc/usb-radio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - run: cargo test -p usb-radio-core
+
+  esp32s3:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: poc/usb-radio
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust for Xtensa
+        uses: esp-rs/xtensa-toolchain@v1.5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          buildtargets: esp32s3
+      - run: cargo +esp check -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf

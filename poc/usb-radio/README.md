@@ -1,0 +1,108 @@
+# USB radio POC
+
+Standalone ESP32-S3 proof of concept for the Metronic 477144 children's player.
+
+The POC deliberately does **not** use IOBEWI. Its purpose is to discover the real
+hardware/USB behaviour first, then later provide a stable reference implementation for
+a separate IOBEWI porting exercise.
+
+Target stream:
+
+```text
+http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3
+```
+
+## Goal
+
+Make the Metronic see an ESP32-S3 as a USB mass-storage device containing a readable
+`RADIO.MP3`, then progressively replace the static/diagnostic payload with the live MP3
+stream.
+
+## Stages
+
+### P0 — virtual FAT16 model
+
+The pure `usb-radio-core` crate implements a deterministic read-only FAT16 disk:
+
+- 512-byte sectors;
+- 4 MiB virtual medium;
+- one root file: `RADIO.MP3`;
+- 2 MiB file extent;
+- data supplied by a `FileSource` trait;
+- host unit tests validate the BPB, FAT chain and root entry.
+
+This layer has no ESP or USB dependency.
+
+### P1 — ESP32-S3 USB MSC
+
+The `usb-radio-firmware` crate exposes the virtual disk through the ESP32-S3 native
+USB OTG peripheral using `esp-hal` + `embassy-usb`.
+
+The MSC implementation is intentionally small and read-only. It supports the SCSI
+commands needed by a normal removable-disk host and logs every READ(10) request:
+
+```text
+msc: READ10 lba=<...> blocks=<...>
+```
+
+This trace is the main deliverable of the first Metronic test. It tells us whether the
+player reads sequentially, reads ahead, seeks, or rereads old sectors.
+
+At this stage the contents of `RADIO.MP3` are diagnostic bytes, not playable audio.
+The acceptance criterion is enumeration + FAT mount + file discovery.
+
+### P2 — static real MP3
+
+Replace the diagnostic file source with a known-good MP3 sample without changing the USB
+or FAT layers.
+
+Acceptance:
+
+- Metronic lists the file;
+- playback starts;
+- LBA trace is captured from start through steady playback.
+
+### P3 — live HTTP source
+
+Add Wi-Fi + HTTP ingestion from the Radio France URL and a rolling MP3 window behind the
+same virtual file-sector interface.
+
+The USB/FAT side must remain unchanged. The LBA trace from P1/P2 determines how much
+history the rolling buffer must retain.
+
+## Build
+
+From the repository root:
+
+```sh
+cd poc/usb-radio
+cargo test -p usb-radio-core
+
+cargo +esp build -p usb-radio-firmware --release \
+  -Z build-std=core \
+  --target xtensa-esp32s3-none-elf
+```
+
+Flash/monitor, assuming `espflash` is installed:
+
+```sh
+cargo +esp run -p usb-radio-firmware --release \
+  -Z build-std=core \
+  --target xtensa-esp32s3-none-elf
+```
+
+## Wiring
+
+ESP32-S3 native USB FS:
+
+- D+ = GPIO20
+- D- = GPIO19
+
+Use the board's native USB/OTG connector or a connector wired to those pins. Do not use a
+USB-UART bridge port and assume it is the native OTG peripheral.
+
+## Important limitation
+
+This POC intentionally reports a fixed FAT16 file size. A live radio stream is infinite,
+while FAT/MSC is random-access and finite. P3 therefore depends on the actual Metronic
+access pattern observed in P1/P2; no streaming strategy is assumed in advance.

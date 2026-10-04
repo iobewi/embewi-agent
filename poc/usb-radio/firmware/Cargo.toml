@@ -1,0 +1,37 @@
+[package]
+name = "usb-radio-firmware"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+usb-radio-core = { path = "../core" }
+
+embassy-executor = "0.10.0"
+embassy-futures = "0.1.2"
+embassy-usb = { version = "0.6.0", default-features = false }
+
+esp-backtrace = { version = "0.20.0", features = [
+  "esp32s3",
+  "panic-handler",
+  "println",
+] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32s3"] }
+esp-hal = { version = "1.2.0", features = [
+  "esp32s3",
+  "log-04",
+  "unstable",
+] }
+esp-rtos = { version = "0.4.0", features = [
+  "esp32s3",
+  "embassy",
+  "log-04",
+] }
+esp-println = { version = "0.18.0", features = [
+  "esp32s3",
+  "log-04",
+  "uart",
+] }
+
+[features]
+default = []
