@@ -6,7 +6,8 @@ use embassy_usb::{
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
     types::InterfaceNumber,
 };
-use usb_radio_core::{FileSource, SECTOR_SIZE, TOTAL_SECTORS, VirtualFat16};
+use embassy_time::{Duration, Timer};
+use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE, TOTAL_SECTORS, VirtualFat16};
 
 const USB_CLASS_MASS_STORAGE: u8 = 0x08;
 const MSC_SUBCLASS_SCSI_TRANSPARENT: u8 = 0x06;
@@ -236,7 +237,35 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         let mut sent_total = 0u32;
 
                         for block in 0..blocks {
-                            disk.read_sector(lba + block, &mut sector);
+                            let block_lba = lba + block;
+                            let mut pending_logged = false;
+
+                            loop {
+                                match disk.read_sector(block_lba, &mut sector) {
+                                    FileReadStatus::Ready => break,
+                                    FileReadStatus::Pending => {
+                                        if !pending_logged {
+                                            esp_println::println!(
+                                                "msc: waiting for stream lba={}",
+                                                block_lba
+                                            );
+                                            pending_logged = true;
+                                        }
+                                        Timer::after(Duration::from_millis(5)).await;
+                                    }
+                                    FileReadStatus::Expired => {
+                                        esp_println::println!(
+                                            "msc: stream data expired lba={}",
+                                            block_lba
+                                        );
+                                        // Keep BOT/SCSI state healthy for the POC. An expired
+                                        // sector is filled with zeroes by the source; this should
+                                        // never happen in the normal forward-only Metronic path.
+                                        break;
+                                    }
+                                }
+                            }
+
                             self.write_bytes(&sector).await?;
                             sent_total += SECTOR_SIZE as u32;
                         }
