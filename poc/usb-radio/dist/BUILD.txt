@@ -1,6 +1,6 @@
 repository:   https://github.com/iobewi/embewi-agent.git
 branch:       poc/usb-radio-stream
-source:       503a8592cf46693e40d79e9be5392b25a7e3a82a
+source:       568b0c8ec78407372daa5321e45394827858d644
 target:       xtensa-esp32s3-none-elf (ESP32-S3)
 profile:      release
 delivery:     credential-free (Wi-Fi provisioned at runtime via Improv Serial)
@@ -10,7 +10,7 @@ rustc (core): rustc 1.95.0 (59807616e 2026-04-14)
 espflash:     espflash 4.6.0
 
 RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/workspace/embewi-agent/poc/usb-radio=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
-SOURCE_DATE_EPOCH: 1791122597
+SOURCE_DATE_EPOCH: 1791122956
 build (cwd poc/usb-radio):
   cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
   cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
@@ -22,5 +22,5 @@ flash layout: single merged image (bootloader + partition table + app) at 0x0
   (espflash default bootloader and partition table; no custom partitions)
 
 sha256:
-  364f32d3c5b0e658576e31b002d9f0fd1f065a311b1d4201985fd447574dec94  usb-radio-poc-esp32s3.bin
-  f083040e26876cdf2a1382a3eecd1451cac1cf2a6fafd6c3629fff85b031565f  usb-radio-poc-esp32s3.elf
+  af1565554335bfebedda149b74fdfb256cb04f4b120033ac65b772c5a9ec779c  usb-radio-poc-esp32s3.bin
+  1deeaf2430bc820c5fa19cfe3c84adeeea918efc39a11c7ef96e7732a126ac57  usb-radio-poc-esp32s3.elf
