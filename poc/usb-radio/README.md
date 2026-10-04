@@ -89,29 +89,19 @@ justify it.
 
 ## Build
 
-P2 Wi-Fi credentials are compile-time inputs. They are deliberately not committed:
-
-```sh
-export WIFI_SSID='your-ssid'
-export WIFI_PASSWORD='your-password'
-```
-
-An empty password selects an open network.
-
 From the repository root:
 
 ```sh
 cd poc/usb-radio
 cargo test -p usb-radio-core
 
-WIFI_SSID="$WIFI_SSID" WIFI_PASSWORD="$WIFI_PASSWORD" \
 cargo +esp build -p usb-radio-firmware --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
 
-CI builds with no credentials to validate compilation only; such an image intentionally
-stops before Wi-Fi initialization at runtime.
+The firmware contains **no Wi-Fi credentials**: they are entered at runtime (see
+[Wi-Fi provisioning](#wi-fi-provisioning-improv-serial)), so `dist/` can be versioned.
 
 Flash/monitor, assuming `espflash` is installed:
 
@@ -120,6 +110,36 @@ cargo +esp run -p usb-radio-firmware --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
+
+## Wi-Fi provisioning (Improv Serial)
+
+Wi-Fi is configured over the USB-UART port with [Improv Serial](https://www.improv-wifi.com/serial/),
+the protocol ESP Web Tools speaks after flashing.
+
+- `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
+  `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
+  used: they pin `esp-hal 1.1`, the POC is on `esp-hal 1.2`. The POC carries its own small
+  adapters (`firmware/src/wifi.rs`: esp-radio transport + UART; `firmware/src/flash_config.rs`:
+  config backend).
+- Credentials are validated first (association + DHCP) and only then committed to two flash
+  sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
+  `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.
+- Reflashing the merged image rewrites that region: provision again after each flash.
+- Flash writes stall interrupts for a few ms: provision with the OTG port **unplugged**.
+
+Flow: flash with ESP Web Tools, choose **Connect to Wi-Fi** in its dialog (it lists the
+networks seen by the board), enter the password. Boot log on success:
+
+```text
+wifi: no saved credentials; waiting for Improv provisioning
+improv: provisioning ssid=...
+wifi: associated ...
+wifi: got IP ...
+improv: provisioned, credentials saved
+```
+
+On later boots the saved network is connected automatically (`wifi: ready`), with
+reconnection/backoff handled by `WifiManager`.
 
 ## Flash the POC
 
@@ -133,36 +153,23 @@ Board: ESP32-S3. Two different USB connectors are involved:
 The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
 console; logs (`esp-println`, `uart` feature) come out on the USB-UART port only.
 
-The committed `dist/` artefacts are the credential-free P1 reference image and are never
-overwritten by a credentialed P2 build.
-
-`scripts/build-release.sh` routes outputs as follows:
-
-- no `WIFI_SSID` / `WIFI_PASSWORD`: `dist/` (versioned reference build);
-- either Wi-Fi variable set: `dist-local/` (ignored by Git, contains local credentials).
-
-Never share a P2 BIN/ELF built with credentials.
+`dist/` holds the current (P2, Improv-provisioned) image; it contains no credentials. The
+older P1-only image remains in Git history (commit `5277330`).
 
 The flashable image is a single merged image (bootloader + partition table + app) written
 at `0x0`; the matching ELF is emitted beside it.
 
 ### Browser (ESP Web Tools)
 
-For P1, serve `poc/usb-radio/dist/`.
-
-For P2, build locally first, then use the generated image from
-`poc/usb-radio/dist-local/usb-radio-poc-esp32s3.bin`. If your local web flasher expects
-the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there manually; that
-directory is ignored by Git.
-
-Do not copy or publish the P2 ELF/BIN outside local ignored paths.
+Serve `poc/usb-radio/dist/` (it has its own `index.html` + `manifest.json`). If your local
+web flasher expects the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there;
+that directory is ignored by Git.
 
 ### Command line
 
 ```sh
-poc/usb-radio/scripts/flash.sh            # dist-local/ when present, else P1 dist/
+poc/usb-radio/scripts/flash.sh
 poc/usb-radio/scripts/flash.sh --port /dev/ttyUSB0
-poc/usb-radio/scripts/flash.sh --p1       # force versioned P1 reference image
 ```
 
 The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
@@ -175,8 +182,7 @@ poc/usb-radio/scripts/build-release.sh
 ```
 
 Runs the core tests, the release build (real link), and `espflash save-image --merge`.
-Credential-free builds regenerate `dist/`; credentialed P2 builds write only to the
-Git-ignored `dist-local/`.
+Regenerates `dist/`.
 
 `SOURCE_DATE_EPOCH` is the date of the last commit touching the POC sources, excluding
 both delivery directories. This also avoids the old false "uncommitted changes" report

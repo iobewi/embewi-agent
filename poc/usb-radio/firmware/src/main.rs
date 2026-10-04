@@ -1,13 +1,20 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+mod flash_config;
 mod msc;
 mod stream;
+mod wifi;
 
 use embassy_executor::Spawner;
+use core::cell::RefCell;
+
 use embassy_futures::join::join;
 use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, Handler};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -15,33 +22,22 @@ use esp_hal::{
     clock::CpuClock,
     rng::Rng,
     timer::timg::TimerGroup,
+    uart::{Config as UartConfig, Uart, UartRx, UartTx},
     usb::otg::{
         Usb,
         embassy_usb_device::{Config as OtgConfig, Driver},
     },
 };
-use esp_radio::wifi::{
-    AuthenticationMethodConfig,
-    Config as WifiConfig,
-    ControllerConfig,
-    Interface,
-    WifiController,
-    sta::StationConfig,
-};
+use esp_radio::wifi::{ControllerConfig, Interface, WifiController};
+use esp_storage::FlashStorage;
+use flash_config::{FlashConfigBackend, SharedFlash};
+use iobewi_config_space::ConfigManager;
+use iobewi_wifi_manager::{CONFIG_BUDGET, WifiManager};
 use msc::{MscClass, State as MscState};
 use stream::{STREAM, SharedStreamSource};
 use usb_radio_core::VirtualFat16;
 
 esp_bootloader_esp_idf::esp_app_desc!();
-
-const WIFI_SSID: &str = match option_env!("WIFI_SSID") {
-    Some(value) => value,
-    None => "",
-};
-const WIFI_PASSWORD: &str = match option_env!("WIFI_PASSWORD") {
-    Some(value) => value,
-    None => "",
-};
 
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
@@ -88,34 +84,19 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    if WIFI_SSID.is_empty() {
-        esp_println::println!(
-            "wifi: WIFI_SSID missing; rebuild with WIFI_SSID/WIFI_PASSWORD"
-        );
-        loop {
-            Timer::after(Duration::from_secs(60)).await;
-        }
-    }
+    // Wi-Fi credentials come from Improv Serial (ESP Web Tools) and live in flash.
+    let flash = mk_static!(
+        SharedFlash,
+        Mutex::new(RefCell::new(FlashStorage::new(peripherals.FLASH)))
+    );
+    let mut config_manager = ConfigManager::new(FlashConfigBackend::new(flash));
+    let wifi_space = config_manager
+        .claim("wifi", CONFIG_BUDGET)
+        .expect("wifi config space");
 
-    let station = if WIFI_PASSWORD.is_empty() {
-        StationConfig::default()
-            .with_ssid(WIFI_SSID.try_into().unwrap())
-    } else {
-        StationConfig::default()
-            .with_ssid(WIFI_SSID.try_into().unwrap())
-            .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
-                WIFI_PASSWORD.try_into().unwrap(),
-            ))
-    };
-    let station_config = WifiConfig::Station(station);
-
-    esp_println::println!("wifi: configuring ssid={}", WIFI_SSID);
     let wifi_interface = Interface::station();
-    let controller = WifiController::new(
-        peripherals.WIFI,
-        ControllerConfig::default().with_initial_config(station_config),
-    )
-    .unwrap();
+    let controller =
+        WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
 
     let net_config = embassy_net::Config::dhcpv4(Default::default());
     let rng = Rng::new();
@@ -127,8 +108,18 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    spawner.spawn(connection(controller).unwrap());
     spawner.spawn(net_task(runner).unwrap());
+
+    // Improv Serial shares UART0 (the USB-UART port) with the log output.
+    let uart = Uart::new(peripherals.UART0, UartConfig::default())
+        .unwrap()
+        .with_rx(peripherals.GPIO44)
+        .with_tx(peripherals.GPIO43)
+        .into_async();
+    let (uart_rx, uart_tx) = uart.split();
+    let manager = WifiManager::new(wifi::EspWifiTransport::new(controller, stack), wifi_space);
+    spawner.spawn(improv_task(uart_rx).unwrap());
+    spawner.spawn(wifi_task(manager, uart_tx).unwrap());
 
     let usb = Usb::new_fs(
         peripherals.USB_FS,
@@ -202,21 +193,13 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
-    loop {
-        esp_println::println!("wifi: connecting");
-        match controller.connect_async().await {
-            Ok(info) => {
-                esp_println::println!("wifi: connected {:?}", info);
-                let info = controller.wait_for_disconnect_async().await.ok();
-                esp_println::println!("wifi: disconnected {:?}", info);
-            }
-            Err(err) => {
-                esp_println::println!("wifi: connect error {:?}", err);
-            }
-        }
-        Timer::after(Duration::from_secs(2)).await;
-    }
+async fn improv_task(rx: UartRx<'static, esp_hal::Async>) {
+    wifi::improv_reader(rx).await
+}
+
+#[embassy_executor::task]
+async fn wifi_task(manager: wifi::Manager, tx: UartTx<'static, esp_hal::Async>) {
+    wifi::wifi_task(manager, tx).await
 }
 
 #[embassy_executor::task]

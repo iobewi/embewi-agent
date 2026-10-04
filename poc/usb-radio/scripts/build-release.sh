@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the USB-radio firmware and produce a flashable image.
-# Credential-free builds write the versioned P1 reference to dist/.
-# Any build carrying Wi-Fi credentials writes only to ignored dist-local/.
+# The firmware carries no Wi-Fi credentials (provisioned at runtime via Improv Serial),
+# so the output in dist/ is safe to version and share.
 # Re-runnable; run from anywhere. Requires: rustup toolchains 1.95.0 + esp, espflash.
 set -euo pipefail
 
@@ -11,12 +11,10 @@ cd "$POC_DIR"
 TARGET=xtensa-esp32s3-none-elf
 PKG=usb-radio-firmware
 NAME=usb-radio-poc-esp32s3
-if [[ -n "${WIFI_SSID:-}" || -n "${WIFI_PASSWORD:-}" ]]; then
-    DIST="$POC_DIR/dist-local"
-    BUILD_KIND="P2 local (contains Wi-Fi credentials; never commit/share)"
-else
-    DIST="$POC_DIR/dist"
-    BUILD_KIND="credential-free reference"
+DIST="$POC_DIR/dist"
+BUILD_KIND="credential-free (Wi-Fi provisioned at runtime via Improv Serial)"
+if [[ -n "${WIFI_SSID:-}${WIFI_PASSWORD:-}" ]]; then
+    echo "note: WIFI_SSID/WIFI_PASSWORD are ignored; the firmware is provisioned via Improv Serial." >&2
 fi
 ELF_SRC="target/$TARGET/release/$PKG"
 
@@ -84,8 +82,4 @@ DIRTY=""
 
 echo "== done: $BUILD_KIND"
 echo "output: $DIST"
-if [[ "$DIST" == "$POC_DIR/dist-local" ]]; then
-    echo "WARNING: this directory contains a firmware built with local Wi-Fi credentials."
-    echo "Do not commit or share its BIN/ELF."
-fi
 cat "$DIST/SHA256SUMS"

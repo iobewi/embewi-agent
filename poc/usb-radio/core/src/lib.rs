@@ -1,5 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
+pub mod config_store;
+
 pub const SECTOR_SIZE: usize = 512;
 pub const TOTAL_SECTORS: u32 = 8192; // 4 MiB
 pub const RESERVED_SECTORS: u32 = 1;

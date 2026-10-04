@@ -10,4 +10,4 @@ build-std = ["core"]
 
 [env]
 # Only embassy-usb control-request tracing (enumeration debugging).
-ESP_LOG = "embassy_usb=trace"
+ESP_LOG = "embassy_usb=trace,iobewi_wifi_manager=info"
