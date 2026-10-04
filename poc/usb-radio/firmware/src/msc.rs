@@ -6,7 +6,7 @@ use embassy_usb::{
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
     types::InterfaceNumber,
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE, TOTAL_SECTORS, VirtualFat16};
 
 const USB_CLASS_MASS_STORAGE: u8 = 0x08;
@@ -28,6 +28,9 @@ const SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL: u8 = 0x1E;
 const SCSI_READ_FORMAT_CAPACITIES: u8 = 0x23;
 const SCSI_READ_CAPACITY_10: u8 = 0x25;
 const SCSI_READ_10: u8 = 0x28;
+
+/// Longest wait for stream data inside one READ(10) sector (Windows gave up after ~20 s).
+const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 
 const SENSE_ILLEGAL_REQUEST: u8 = 0x05;
 const ASC_INVALID_OPCODE: u8 = 0x20;
@@ -307,6 +310,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         for block in 0..blocks {
                             let block_lba = lba + block;
                             let mut pending_logged = false;
+                            let waiting_since = Instant::now();
 
                             loop {
                                 match disk.read_sector(block_lba, &mut sector) {
@@ -318,6 +322,17 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                                                 block_lba
                                             );
                                             pending_logged = true;
+                                        }
+                                        if waiting_since.elapsed() >= PENDING_TIMEOUT {
+                                            // Never wait forever: a stalled stream must not wedge
+                                            // the MSC, and a host-side reset must be able to
+                                            // recover it (the write below fails if the bus was
+                                            // reset meanwhile). The sector is already zero-filled.
+                                            esp_println::println!(
+                                                "msc: stream wait timed out lba={}",
+                                                block_lba
+                                            );
+                                            break;
                                         }
                                         Timer::after(Duration::from_millis(5)).await;
                                     }

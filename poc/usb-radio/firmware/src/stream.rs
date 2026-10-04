@@ -12,7 +12,7 @@ use reqwless::{
     client::HttpClient,
     request::{Method, RequestBuilder},
 };
-use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE};
+use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE, StreamWindow, classify_stream_read};
 
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
@@ -187,15 +187,22 @@ impl SharedStream {
             let start = session.base_abs.saturating_add(file_offset);
             let end = start.saturating_add(SECTOR_SIZE as u64);
 
-            if end > state.write_abs {
-                out.fill(0);
-                return FileReadStatus::Pending;
-            }
-
-            let oldest = state.write_abs.saturating_sub(RING_CAPACITY as u64);
-            if start < oldest {
-                out.fill(0);
-                return FileReadStatus::Expired;
+            match classify_stream_read(start, end, state.write_abs, RING_CAPACITY as u64) {
+                StreamWindow::FarAhead => {
+                    // Probe far beyond the live edge (e.g. Windows reading the file tail):
+                    // answer with zeroes now instead of blocking the MSC for hours.
+                    out.fill(0);
+                    return FileReadStatus::Ready;
+                }
+                StreamWindow::Pending => {
+                    out.fill(0);
+                    return FileReadStatus::Pending;
+                }
+                StreamWindow::Expired => {
+                    out.fill(0);
+                    return FileReadStatus::Expired;
+                }
+                StreamWindow::Ready => {}
             }
 
             let pos = start as usize % RING_CAPACITY;

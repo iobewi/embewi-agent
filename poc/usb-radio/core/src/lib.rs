@@ -37,6 +37,43 @@ pub enum FileReadStatus {
     Expired,
 }
 
+/// A read starting more than this many bytes past the live edge of the stream is answered at
+/// once with zeroes instead of waiting. The Metronic reads just behind the live edge; hosts such
+/// as Windows probe arbitrary offsets (e.g. the tail of the 1 GiB file, ~18 h in the future),
+/// which would otherwise block the whole MSC until the stream got there.
+pub const FAR_AHEAD_BYTES: u64 = 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamWindow {
+    /// Fully inside the retained ring window.
+    Ready,
+    /// Slightly ahead of the live edge: the data will arrive soon, wait for it.
+    Pending,
+    /// Far ahead of the live edge: answer with zeroes immediately.
+    FarAhead,
+    /// Older than the retained window.
+    Expired,
+}
+
+/// Classifies a read of absolute stream bytes `[start_abs, end_abs)` given the live edge
+/// `write_abs` and the ring capacity.
+pub fn classify_stream_read(
+    start_abs: u64,
+    end_abs: u64,
+    write_abs: u64,
+    ring_capacity: u64,
+) -> StreamWindow {
+    if start_abs > write_abs.saturating_add(FAR_AHEAD_BYTES) {
+        StreamWindow::FarAhead
+    } else if end_abs > write_abs {
+        StreamWindow::Pending
+    } else if start_abs < write_abs.saturating_sub(ring_capacity) {
+        StreamWindow::Expired
+    } else {
+        StreamWindow::Ready
+    }
+}
+
 /// Supplies sectors from the virtual RADIO.MP3.
 ///
 /// A source may use session callbacks to remap file offset 0 to a new position in an
@@ -288,5 +325,29 @@ mod tests {
         disk.read_sector(DATA_START_LBA + 7, &mut sector);
         assert_eq!(sector[0], 7);
         assert_eq!(&sector[SECTOR_SIZE - 4..], &7u32.to_le_bytes());
+    }
+
+    #[test]
+    fn stream_read_classification() {
+        const RING: u64 = 96 * 1024;
+        let live = 2 * 1024 * 1024;
+        // Inside the window.
+        assert_eq!(classify_stream_read(live - 4096, live - 3584, live, RING), StreamWindow::Ready);
+        // Just past the live edge (the Metronic pacing case): wait.
+        assert_eq!(classify_stream_read(live, live + 512, live, RING), StreamWindow::Pending);
+        assert_eq!(classify_stream_read(live - 256, live + 256, live, RING), StreamWindow::Pending);
+        assert_eq!(
+            classify_stream_read(live + FAR_AHEAD_BYTES, live + FAR_AHEAD_BYTES + 512, live, RING),
+            StreamWindow::Pending
+        );
+        // Windows tail probe of the 1 GiB file: answered at once.
+        let tail = FILE_SIZE as u64 - 512;
+        assert_eq!(classify_stream_read(tail, tail + 512, live, RING), StreamWindow::FarAhead);
+        assert_eq!(
+            classify_stream_read(live + FAR_AHEAD_BYTES + 1, live + FAR_AHEAD_BYTES + 513, live, RING),
+            StreamWindow::FarAhead
+        );
+        // Older than the retained window.
+        assert_eq!(classify_stream_read(0, 512, live, RING), StreamWindow::Expired);
     }
 }
