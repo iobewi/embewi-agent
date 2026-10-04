@@ -28,6 +28,10 @@ const SCSI_READ_FORMAT_CAPACITIES: u8 = 0x23;
 const SCSI_READ_CAPACITY_10: u8 = 0x25;
 const SCSI_READ_10: u8 = 0x28;
 
+const SENSE_ILLEGAL_REQUEST: u8 = 0x05;
+const ASC_INVALID_OPCODE: u8 = 0x20;
+const ASC_LBA_OUT_OF_RANGE: u8 = 0x21;
+
 pub struct State<'a> {
     control: MaybeUninit<Control>,
     _lifetime: core::marker::PhantomData<&'a ()>,
@@ -149,6 +153,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         disk: &mut VirtualFat16<S>,
     ) -> Result<(), EndpointError> {
         let mut packet = [0u8; 64];
+        // (sense key, ASC) of the last failed command, reported once by REQUEST SENSE.
+        let mut sense = (0u8, 0u8);
 
         loop {
             let n = self.read_ep.read(&mut packet).await?;
@@ -175,7 +181,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 }
 
                 SCSI_REQUEST_SENSE => {
-                    let data = request_sense();
+                    let data = request_sense(sense.0, sense.1);
+                    sense = (0, 0);
                     let sent = self.send_limited(&data, cbw.transfer_len).await?;
                     residue = residue.saturating_sub(sent as u32);
                 }
@@ -222,6 +229,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                     esp_println::println!("msc: READ10 lba={} blocks={}", lba, blocks);
 
                     if lba >= TOTAL_SECTORS || blocks > TOTAL_SECTORS - lba {
+                        sense = (SENSE_ILLEGAL_REQUEST, ASC_LBA_OUT_OF_RANGE);
                         status = 1;
                     } else {
                         let mut sector = [0u8; SECTOR_SIZE];
@@ -243,6 +251,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         other,
                         cbw.transfer_len
                     );
+                    sense = (SENSE_ILLEGAL_REQUEST, ASC_INVALID_OPCODE);
                     status = 1;
                 }
             }
@@ -329,9 +338,11 @@ fn inquiry() -> [u8; 36] {
     data
 }
 
-fn request_sense() -> [u8; 18] {
+fn request_sense(key: u8, asc: u8) -> [u8; 18] {
     let mut data = [0u8; 18];
     data[0] = 0x70;
+    data[2] = key;
     data[7] = 10;
+    data[12] = asc;
     data
 }

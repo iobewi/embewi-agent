@@ -38,4 +38,18 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           buildtargets: esp32s3
-      - run: cargo +esp check -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: espflash
+      - name: Release build (real link)
+        run: cargo +esp build -p usb-radio-firmware --release -Z build-std=core --target xtensa-esp32s3-none-elf
+      - name: Flashable image
+        run: |
+          mkdir -p ci-out
+          espflash save-image --chip esp32s3 --merge --skip-padding \
+            target/xtensa-esp32s3-none-elf/release/usb-radio-firmware ci-out/usb-radio-poc-esp32s3.bin
+          sha256sum ci-out/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usb-radio-poc-esp32s3-ci
+          path: poc/usb-radio/ci-out/
