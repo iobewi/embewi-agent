@@ -1089,6 +1089,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ef0e785f54e316f64a1e14a7a2f061a2ea0b038b284902ca71e1e1f5574cf47"
 dependencies = [
  "document-features",
+ "embedded-storage",
  "esp-hal",
  "esp-hal-procmacros",
  "esp-metadata-generated",
@@ -1529,6 +1530,30 @@ source = "git+https://github.com/iobewi/iobewi?rev=dc55d66c677b0e6d3ddade8bd8448
 name = "iobewi-config-space"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
+
+[[package]]
+name = "iobewi-esp-flash"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
+dependencies = [
+ "embassy-sync 0.8.0",
+ "embedded-storage",
+ "esp-hal",
+ "esp-rom-sys",
+ "esp-storage",
+ "static_cell",
+]
+
+[[package]]
+name = "iobewi-esp-partitions"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
+dependencies = [
+ "embedded-storage",
+ "esp-bootloader-esp-idf",
+ "esp-rom-sys",
+ "esp-storage",
+]
 
 [[package]]
 name = "iobewi-esp-wifi"
@@ -2459,9 +2484,10 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
- "esp-storage",
  "improv-serial",
  "iobewi-config-space",
+ "iobewi-esp-flash",
+ "iobewi-esp-partitions",
  "iobewi-esp-wifi",
  "iobewi-rolling-stream",
  "iobewi-usb-msc",

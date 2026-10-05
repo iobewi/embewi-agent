@@ -167,7 +167,7 @@ the protocol ESP Web Tools speaks after flashing.
   `iobewi-esp-wifi` for radio and stack mechanics. Product code retains UART provisioning,
   credential persistence and the no-op for unchanged credentials while online.
 - Credentials are validated first (association + DHCP) and only then committed to two flash
-  sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
+  sectors of the discovered `nvs` data/NVS partition (`0x9000`/`0xA000`, UCF1 A/B records with generation + CRC and WFC1 payload, see
   `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.
 - Reflashing the merged image rewrites that region: provision again after each flash.
 - Flash writes stall interrupts for a few ms: provision with the OTG port **unplugged**.
@@ -260,18 +260,35 @@ Other lines: `msc: bulk-only reset`, `msc: unsupported SCSI opcode=0x.. xfer=..`
 
 ## Gate P1-METRONIC (hardware, manual)
 
-Precondition: POC flashed on the ESP32-S3.
+This existing gate now qualifies the current recomposition through the complete P3
+path. Historical golden evidence does not qualify a newly compiled artifact.
+Precondition: actual current-branch firmware flashed on ESP32-S3, Metronic 477144,
+and a serial monitor on the USB-UART port. Record source HEAD, BIN/ELF SHA-256,
+flash method, complete serial logs and measured playback duration for each run.
 
-1. Start the serial monitor on the USB-UART port.
-2. Plug the **native OTG** port into the Metronic 477144.
-3. Wait for detection; check whether the player shows a drive / a file.
-4. Save the full serial log.
+1. Preserve existing golden UCF1/WFC1 credential sectors and flash only the app
+   (no erase or merged image overwrite of NVS). Verify saved credentials boot and
+   obtain DHCP without provisioning. Record the previous image/source if available.
+   Reprovisioning first cannot prove compatibility with existing golden records.
+2. Confirm HTTP 200 and 64 KiB prebuffer before enabling USB. Connect the native OTG
+   port to Metronic and verify enumeration, `RADIO.MP3` detection (`MP3` / `F001`)
+   and audible live MP3.
+3. Continue audible playback strictly beyond 2 min 10 s; record actual duration.
+   Confirm no repeated expired-data events or persistent producer/consumer stall.
+   Bounded producer pauses from backpressure are expected.
+4. Issue non-mutating Improv requests (for example current state/device info)
+   during playback. Confirm audio remains continuous without deliberate link bounce.
+5. Interrupt Wi-Fi and restore it. Confirm network reconnect, HTTP recovery and
+   resumed playback; retain logs showing each stage and any interruption duration.
+6. Unplug/replug OTG and verify a new session rebases to the current retained live
+   window, with audible playback rather than expired offset zero.
+7. Unplug OTG before reprovisioning, as required by the golden flash-write limitation.
+   Provision credentials, verify their durable commit, reboot without erasing flash,
+   and confirm reconnect from the saved record.
 
-Record: USB enumeration OK or not; `msc: connected` present or not; unsupported SCSI
-opcodes; the READ10 sequence (first LBA, transfer sizes, re-reads, backward/forward
-jumps); behaviour on unplug (`msc: disconnected`).
-
-Not PASS without real hardware.
+Record endpoint/session events, unsupported SCSI opcodes and aggregated READ(10)
+progress; use `usb-debug` only if detailed enumeration evidence is needed. Flashing
+old `dist/` does not qualify this gate. Not PASS without real hardware.
 
 ## Wiring
 
@@ -348,4 +365,28 @@ reconfiguration waits for the old lease to disappear. Association and DHCP each 
 20-second timeouts, but disconnect/configuration-down waits do not. Initialization failure
 can consume the radio peripheral. The framework seeds the network stack from its clock.
 These differences require hardware replay, including Improv during audio and Wi-Fi loss
-and recovery. Credential flash storage remains the local golden adapter for now.
+and recovery.
+
+### Physical flash reuse and persisted compatibility
+
+The product now uses `iobewi-esp-flash::init` and `iobewi-esp-partitions` at
+`e21885ac905f3ef31c3303076962aefd448f5d0d`. Initialization creates the single physical
+flash owner and preserves S3 `multicore_auto_park`; backend operations use its async
+mutex. Erase and write hold one guard, released before verification reacquires it.
+
+`flash_config` remains a product adapter: the actual golden record magic is **UCF1**,
+with WFC1 Wi-Fi payload, generations, CRC, clear flag and the unchanged A/B selection.
+There is no silent migration to IOBEWI's NVS record format. The absolute sectors remain
+`0x9000`/`0xA000`. Before any config read/write, the backend discovers partition label
+`nvs`, raw data type 1/subtype 2, and validates erase alignment, checked address bounds,
+physical flash capacity and containment of both complete sectors. Missing, unreadable,
+overflowing or incompatible layouts fail explicitly at initialization; records are
+never relocated to apparently free space.
+
+The golden provisioning limitation remains: flash writes stall interrupts, so provision
+with OTG unplugged. Pre-existing limitations remain: read failures can look like invalid
+slots; generation increment has no u64 exhaustion policy; the complete read/select/write
+transaction does not exclude concurrent backend callers. The single owner provides
+serialization of individual physical operations, not a new transaction contract.
+Hardware replay must include boot with existing golden credentials and durable
+reprovision/reboot as specified by the gate above.

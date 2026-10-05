@@ -15,6 +15,36 @@ pub const HEADER_LEN: usize = 4 + 8 + 1 + 1 + 2;
 pub const CRC_LEN: usize = 4;
 /// Upper bound the firmware reads per slot; the Wi-Fi record is far smaller.
 pub const MAX_RECORD_LEN: usize = 512;
+/// Product-owned absolute golden config slots; never relocate persisted records implicitly.
+pub const SLOT_A_OFFSET: u32 = 0x9000;
+pub const SLOT_B_OFFSET: u32 = 0xA000;
+pub const FLASH_SECTOR_SIZE: u32 = 4096;
+
+/// Whether a discovered NVS partition and physical medium contain both golden sectors.
+/// No fallback or address relocation is allowed when this predicate fails.
+pub fn supports_layout(partition_offset: u32, partition_size: usize, physical_size: usize) -> bool {
+    let Ok(size) = u32::try_from(partition_size) else {
+        return false;
+    };
+    let Some(partition_end) = partition_offset.checked_add(size) else {
+        return false;
+    };
+    if partition_offset % FLASH_SECTOR_SIZE != 0
+        || size % FLASH_SECTOR_SIZE != 0
+        || MAX_RECORD_LEN > FLASH_SECTOR_SIZE as usize
+        || partition_end as usize > physical_size
+    {
+        return false;
+    }
+    [SLOT_A_OFFSET, SLOT_B_OFFSET].into_iter().all(|offset| {
+        offset % FLASH_SECTOR_SIZE == 0
+            && offset >= partition_offset
+            && offset
+                .checked_add(FLASH_SECTOR_SIZE)
+                .is_some_and(|end| end <= partition_end)
+    })
+}
+
 const FLAG_CLEARED: u8 = 1;
 
 pub fn crc32(data: &[u8]) -> u32 {
@@ -22,7 +52,11 @@ pub fn crc32(data: &[u8]) -> u32 {
     for &byte in data {
         crc ^= byte as u32;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc
@@ -141,7 +175,10 @@ mod tests {
         let n = encode(&mut buf, 7, "wifi", b"WFC1abc", false).unwrap();
         assert_eq!(n % 4, 0);
         let d = decode(&buf[..n]).unwrap();
-        assert_eq!((d.generation, d.space, d.data, d.cleared), (7, &b"wifi"[..], &b"WFC1abc"[..], false));
+        assert_eq!(
+            (d.generation, d.space, d.data, d.cleared),
+            (7, &b"wifi"[..], &b"WFC1abc"[..], false)
+        );
     }
 
     #[test]
@@ -182,5 +219,33 @@ mod tests {
         // Only one valid slot (e.g. the other write was torn): keep it, write the other.
         assert_eq!(write_target(Some(9), None), Slot::B);
         assert_eq!(write_target(None, Some(9)), Slot::A);
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn supports_golden_layout_and_exact_sector_bounds() {
+        assert!(supports_layout(0x9000, 0x6000, 8 * 1024 * 1024));
+        assert!(supports_layout(0x9000, 0x2000, 0xB000));
+        assert!(supports_layout(0x8000, 0x3000, 0xB000));
+    }
+
+    #[test]
+    fn rejects_missing_slot_or_outside_physical_flash() {
+        assert!(!supports_layout(0xA000, 0x6000, 8 * 1024 * 1024));
+        assert!(!supports_layout(0x9000, 0x1000, 8 * 1024 * 1024));
+        assert!(!supports_layout(0x9000, 0x6000, 0xEFFF));
+        assert!(!supports_layout(0x9000, 0, 8 * 1024 * 1024));
+    }
+
+    #[test]
+    fn rejects_unaligned_and_overflowing_partition_ranges() {
+        assert!(!supports_layout(0x9001, 0x6000, usize::MAX));
+        assert!(!supports_layout(0x9000, 0x6001, usize::MAX));
+        assert!(!supports_layout(0xFFFF_F000, 0x2000, usize::MAX));
+        assert!(!supports_layout(0x9000, usize::MAX, usize::MAX));
     }
 }

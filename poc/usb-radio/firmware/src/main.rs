@@ -8,12 +8,10 @@ mod msc;
 mod stream;
 mod wifi;
 
-use core::cell::RefCell;
 use embassy_executor::Spawner;
 
 use embassy_futures::join::join;
 use embassy_net::StackResources;
-use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use embassy_usb::Builder;
 #[cfg(feature = "usb-debug")]
@@ -29,8 +27,7 @@ use esp_hal::{
         embassy_usb_device::{Config as OtgConfig, Driver},
     },
 };
-use esp_storage::FlashStorage;
-use flash_config::{FlashConfigBackend, SharedFlash};
+use flash_config::FlashConfigBackend;
 use iobewi_config_space::ConfigManager;
 use iobewi_wifi_manager::{CONFIG_BUDGET, WifiManager};
 use msc::{MscClass, State as MscState};
@@ -87,11 +84,11 @@ async fn main(spawner: Spawner) {
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     // Wi-Fi credentials come from Improv Serial (ESP Web Tools) and live in flash.
-    let flash = mk_static!(
-        SharedFlash,
-        Mutex::new(RefCell::new(FlashStorage::new(peripherals.FLASH)))
-    );
-    let mut config_manager = ConfigManager::new(FlashConfigBackend::new(flash));
+    let flash = iobewi_esp_flash::init(peripherals.FLASH);
+    let backend = FlashConfigBackend::new(flash)
+        .await
+        .unwrap_or_else(|error| panic!("golden UCF1 NVS layout: {error}"));
+    let mut config_manager = ConfigManager::new(backend);
     let wifi_space = config_manager
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
