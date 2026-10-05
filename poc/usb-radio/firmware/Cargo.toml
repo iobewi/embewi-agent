@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 usb-radio-core = { path = "../core" }
+iobewi-rolling-stream = { git = "https://github.com/iobewi/iobewi", rev = "86f25f8d9129bb1383e386cd4548a5556c37655c" }
 
 embassy-executor = "0.10.0"
 embassy-futures = "0.1.2"

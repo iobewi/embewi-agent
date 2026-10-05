@@ -1,4 +1,5 @@
 use core::cell::RefCell;
+use iobewi_rolling_stream::{ReadStatus, RollingStream};
 
 use embassy_net::{
     Stack,
@@ -20,10 +21,8 @@ macro_rules! mk_static {
         CELL.uninit().write($val)
     }};
 }
-use mk_static;
 
-pub const STREAM_URL: &str =
-    "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
+pub const STREAM_URL: &str = "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
 
 const RING_CAPACITY: usize = 96 * 1024;
 const PREBUFFER_BYTES: u64 = 64 * 1024;
@@ -39,12 +38,10 @@ pub struct SharedStream {
 struct Session {
     id: u32,
     base_abs: u64,
-    read_end_abs: u64,
 }
 
 struct StreamState {
-    data: [u8; RING_CAPACITY],
-    write_abs: u64,
+    window: RollingStream<RING_CAPACITY>,
     reconnects: u32,
     next_session_id: u32,
     session: Option<Session>,
@@ -54,8 +51,7 @@ impl SharedStream {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(StreamState {
-                data: [0; RING_CAPACITY],
-                write_abs: 0,
+                window: RollingStream::new(PREBUFFER_BYTES, MAX_LEAD_BYTES),
                 reconnects: 0,
                 next_session_id: 1,
                 session: None,
@@ -65,38 +61,31 @@ impl SharedStream {
 
     pub fn is_ready(&self) -> bool {
         self.inner
-            .lock(|cell| cell.borrow().write_abs >= PREBUFFER_BYTES)
+            .lock(|cell| cell.borrow().window.written() >= PREBUFFER_BYTES)
     }
 
     pub fn progress(&self) -> (u64, u64) {
         self.inner.lock(|cell| {
             let state = cell.borrow();
-            let consumed = state
-                .session
-                .map(|session| session.read_end_abs)
-                .unwrap_or(0);
-            (state.write_abs, consumed)
+            let consumed = state.window.session().map(|s| s.read_end).unwrap_or(0);
+            (state.window.written(), consumed)
         })
     }
 
     pub fn begin_session(&self) {
         self.inner.lock(|cell| {
             let mut state = cell.borrow_mut();
-            let retained = core::cmp::min(state.write_abs, PREBUFFER_BYTES);
-            let base_abs = state.write_abs - retained;
+            let retained = core::cmp::min(state.window.written(), PREBUFFER_BYTES);
+            let base_abs = state.window.begin_session().base;
             let id = state.next_session_id;
             state.next_session_id = state.next_session_id.wrapping_add(1).max(1);
-            state.session = Some(Session {
-                id,
-                base_abs,
-                read_end_abs: base_abs,
-            });
+            state.session = Some(Session { id, base_abs });
 
             esp_println::println!(
                 "stream: session start id={} base={} live={} retained={}",
                 id,
                 base_abs,
-                state.write_abs,
+                state.window.written(),
                 retained
             );
         });
@@ -105,62 +94,26 @@ impl SharedStream {
     pub fn end_session(&self) {
         self.inner.lock(|cell| {
             let mut state = cell.borrow_mut();
+            let ended = state.window.end_session();
             if let Some(session) = state.session.take() {
                 esp_println::println!(
                     "stream: session end id={} base={} consumed={} live={}",
                     session.id,
                     session.base_abs,
-                    session.read_end_abs,
-                    state.write_abs
+                    ended.map(|s| s.read_end).unwrap_or(session.base_abs),
+                    state.window.written()
                 );
             }
         });
     }
 
     fn writable(&self) -> usize {
-        self.inner.lock(|cell| {
-            let state = cell.borrow();
-            match state.session {
-                None => 2048,
-                Some(session) => {
-                    let lead = state.write_abs.saturating_sub(session.read_end_abs);
-                    core::cmp::min(
-                        MAX_LEAD_BYTES.saturating_sub(lead) as usize,
-                        2048,
-                    )
-                }
-            }
-        })
+        self.inner
+            .lock(|cell| cell.borrow().window.writable().min(2048))
     }
 
     fn push(&self, input: &[u8]) -> usize {
-        self.inner.lock(|cell| {
-            let mut state = cell.borrow_mut();
-
-            let allowed = match state.session {
-                None => input.len(),
-                Some(session) => {
-                    let lead = state.write_abs.saturating_sub(session.read_end_abs);
-                    core::cmp::min(
-                        input.len(),
-                        MAX_LEAD_BYTES.saturating_sub(lead) as usize,
-                    )
-                }
-            };
-
-            if allowed == 0 {
-                return 0;
-            }
-
-            let pos = state.write_abs as usize % RING_CAPACITY;
-            let first = core::cmp::min(allowed, RING_CAPACITY - pos);
-            state.data[pos..pos + first].copy_from_slice(&input[..first]);
-            if first < allowed {
-                state.data[..allowed - first].copy_from_slice(&input[first..allowed]);
-            }
-            state.write_abs += allowed as u64;
-            allowed
-        })
+        self.inner.lock(|cell| cell.borrow_mut().window.push(input))
     }
 
     fn mark_reconnect(&self) -> u32 {
@@ -171,14 +124,10 @@ impl SharedStream {
         })
     }
 
-    fn read_file_sector(
-        &self,
-        index: u32,
-        out: &mut [u8; SECTOR_SIZE],
-    ) -> FileReadStatus {
+    fn read_file_sector(&self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
         self.inner.lock(|cell| {
             let mut state = cell.borrow_mut();
-            let Some(mut session) = state.session else {
+            let Some(session) = state.session else {
                 out.fill(0);
                 return FileReadStatus::Pending;
             };
@@ -187,7 +136,7 @@ impl SharedStream {
             let start = session.base_abs.saturating_add(file_offset);
             let end = start.saturating_add(SECTOR_SIZE as u64);
 
-            match classify_stream_read(start, end, state.write_abs, RING_CAPACITY as u64) {
+            match classify_stream_read(start, end, state.window.written(), RING_CAPACITY as u64) {
                 StreamWindow::FarAhead => {
                     // Probe far beyond the live edge (e.g. Windows reading the file tail):
                     // answer with zeroes now instead of blocking the MSC for hours.
@@ -205,16 +154,11 @@ impl SharedStream {
                 StreamWindow::Ready => {}
             }
 
-            let pos = start as usize % RING_CAPACITY;
-            let first = core::cmp::min(SECTOR_SIZE, RING_CAPACITY - pos);
-            out[..first].copy_from_slice(&state.data[pos..pos + first]);
-            if first < SECTOR_SIZE {
-                out[first..].copy_from_slice(&state.data[..SECTOR_SIZE - first]);
+            match state.window.read(file_offset, out) {
+                ReadStatus::Ready => FileReadStatus::Ready,
+                ReadStatus::Pending => FileReadStatus::Pending,
+                ReadStatus::Expired => FileReadStatus::Expired,
             }
-
-            session.read_end_abs = core::cmp::max(session.read_end_abs, end);
-            state.session = Some(session);
-            FileReadStatus::Ready
         })
     }
 }
@@ -239,11 +183,7 @@ impl FileSource for SharedStreamSource {
         self.stream.end_session();
     }
 
-    fn read_file_sector(
-        &mut self,
-        index: u32,
-        out: &mut [u8; SECTOR_SIZE],
-    ) -> FileReadStatus {
+    fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
         self.stream.read_file_sector(index, out)
     }
 }

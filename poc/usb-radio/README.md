@@ -289,3 +289,11 @@ exposes 1 GiB (about 18 h 38 min at the measured ~128 kbit/s). A new USB session
 the file to the current live window. The rolling RAM window remains 96 KiB, so very large
 backward seeks are intentionally unsupported; the measured Metronic access pattern is
 forward-only.
+
+## Framework extraction in progress
+
+The reference remains golden `c118e0c`. The recomposed firmware uses portable
+`iobewi-rolling-stream` for retention, backpressure and rebased consumer positions.
+The product retains its 96 KiB capacity, 64 KiB prebuffer, 80 KiB maximum lead,
+far-ahead zero policy, critical-section lock, logs and HTTP reconnect loop. FAT and
+MSC remain golden implementations. Hardware replay is required for qualification.
