@@ -11,4 +11,4 @@ build-std = ["core"]
 [env]
 # iobewi-wifi-manager connection log; embassy-usb control tracing only exists with
 # `--features usb-debug`.
-ESP_LOG = "embassy_usb=trace,iobewi_wifi_manager=info"
+ESP_LOG = "embassy_usb=trace,iobewi_wifi_manager=info,iobewi_usb_msc=info"

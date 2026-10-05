@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+iobewi-usb-msc = { git = "https://github.com/iobewi/iobewi", rev = "dc55d66c677b0e6d3ddade8bd844888af21a8b95" }
 usb-radio-core = { path = "../core" }
 iobewi-rolling-stream = { git = "https://github.com/iobewi/iobewi", rev = "86f25f8d9129bb1383e386cd4548a5556c37655c" }
 
@@ -59,4 +60,4 @@ esp-println = { version = "0.18.0", default-features = false, features = [
 
 [features]
 default = []
-usb-debug = ["embassy-usb/log"]
+usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]

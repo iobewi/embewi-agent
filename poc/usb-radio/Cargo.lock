@@ -1523,7 +1523,7 @@ dependencies = [
 [[package]]
 name = "iobewi-block"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=516251f6245635bfecff0256ae096fb3a2049c67#516251f6245635bfecff0256ae096fb3a2049c67"
+source = "git+https://github.com/iobewi/iobewi?rev=dc55d66c677b0e6d3ddade8bd844888af21a8b95#dc55d66c677b0e6d3ddade8bd844888af21a8b95"
 
 [[package]]
 name = "iobewi-config-space"
@@ -1533,7 +1533,7 @@ source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a
 [[package]]
 name = "iobewi-fat16"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=516251f6245635bfecff0256ae096fb3a2049c67#516251f6245635bfecff0256ae096fb3a2049c67"
+source = "git+https://github.com/iobewi/iobewi?rev=dc55d66c677b0e6d3ddade8bd844888af21a8b95#dc55d66c677b0e6d3ddade8bd844888af21a8b95"
 dependencies = [
  "iobewi-block",
 ]
@@ -1542,6 +1542,17 @@ dependencies = [
 name = "iobewi-rolling-stream"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/iobewi?rev=86f25f8d9129bb1383e386cd4548a5556c37655c#86f25f8d9129bb1383e386cd4548a5556c37655c"
+
+[[package]]
+name = "iobewi-usb-msc"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=dc55d66c677b0e6d3ddade8bd844888af21a8b95#dc55d66c677b0e6d3ddade8bd844888af21a8b95"
+dependencies = [
+ "embassy-time",
+ "embassy-usb",
+ "iobewi-block",
+ "log",
+]
 
 [[package]]
 name = "iobewi-wifi-core"
@@ -2438,6 +2449,7 @@ dependencies = [
  "improv-serial",
  "iobewi-config-space",
  "iobewi-rolling-stream",
+ "iobewi-usb-msc",
  "iobewi-wifi-core",
  "iobewi-wifi-manager",
  "reqwless",

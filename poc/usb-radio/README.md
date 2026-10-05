@@ -302,16 +302,27 @@ far-ahead zero policy, critical-section lock, logs and HTTP reconnect loop.
 
 FAT16 metadata generation and the 512-byte read-only block contract now come from
 `iobewi-fat16`, pinned to framework commit
-`516251f6245635bfecff0256ae096fb3a2049c67`. `usb-radio-core` is the product wrapper:
+`dc55d66c677b0e6d3ddade8bd844888af21a8b95`. `usb-radio-core` is the product wrapper:
 it selects the golden 32 KiB clusters, 1 GiB file extent, 32 root entries, `RADIO.MP3`,
 `RADIOUSB` label and volume serial. The wrapper also implements the portable
 read-only block contract. The framework host tests compare all 261 golden metadata
 sectors byte-for-byte with an independently generated fixture. Product host
 tests retain the BPB, root directory, cluster chain and sector mapping expectations.
 
-The MSC class remains product code. Its capacity responses and READ(10) bounds now
-use the disk instance; commands, endpoint setup, five-second pending timeout and
-five-millisecond retry interval remain unchanged. This extraction introduces neither
+The MSC BOT/SCSI class now comes from `iobewi-usb-msc`, pinned to the same framework
+commit as FAT16 so both use one block-trait identity. Its protocol remains the golden
+read-only subset; it consumes the block contract implemented by the product FAT wrapper.
+`firmware/src/msc.rs` retains only the golden SCSI inquiry identity and unavailable-data
+policy: Pending retries every five milliseconds until five seconds, then sends zeros;
+Expired sends zeros immediately. The class forwards USB session boundaries to the source.
+USB configuration, platform driver, prebuffer exposure and product logs remain local.
+MSC diagnostics use the existing logger with `iobewi_usb_msc=info`; `usb-debug` forwards
+to the class feature as well as Embassy USB logging.
+
+The framework class preserves the reference's incomplete BOT/SCSI behaviour, including
+malformed-CBW handling and BULK-ONLY RESET acknowledgement. It does not claim complete
+conformance. BG-USB-MSC and the complete USB Radio hardware replay remain unqualified
+until exercised on the physical ESP32-S3 + Metronic. This extraction introduces neither
 USB Audio nor decoding: MP3 bytes still pass directly to the player.
 
 Hardware replay on ESP32-S3 + Metronic is required before qualification of this
