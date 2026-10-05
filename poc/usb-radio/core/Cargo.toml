@@ -5,3 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
+iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "516251f6245635bfecff0256ae096fb3a2049c67" }

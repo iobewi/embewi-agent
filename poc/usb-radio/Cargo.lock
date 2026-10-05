@@ -1521,9 +1521,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-block"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=516251f6245635bfecff0256ae096fb3a2049c67#516251f6245635bfecff0256ae096fb3a2049c67"
+
+[[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+
+[[package]]
+name = "iobewi-fat16"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=516251f6245635bfecff0256ae096fb3a2049c67#516251f6245635bfecff0256ae096fb3a2049c67"
+dependencies = [
+ "iobewi-block",
+]
 
 [[package]]
 name = "iobewi-rolling-stream"
@@ -2398,6 +2411,9 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 [[package]]
 name = "usb-radio-core"
 version = "0.1.0"
+dependencies = [
+ "iobewi-fat16",
+]
 
 [[package]]
 name = "usb-radio-firmware"

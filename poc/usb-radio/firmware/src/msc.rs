@@ -1,13 +1,13 @@
 use core::mem::MaybeUninit;
 
+use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::{
     Builder, Handler,
     control::{self, InResponse, OutResponse, Recipient, RequestType},
     driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut},
     types::InterfaceNumber,
 };
-use embassy_time::{Duration, Instant, Timer};
-use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE, TOTAL_SECTORS, VirtualFat16};
+use usb_radio_core::{FileReadStatus, FileSource, SECTOR_SIZE, VirtualFat16};
 
 const USB_CLASS_MASS_STORAGE: u8 = 0x08;
 const MSC_SUBCLASS_SCSI_TRANSPARENT: u8 = 0x06;
@@ -128,10 +128,7 @@ impl ReadStats {
         self.commands = self.commands.saturating_add(1);
         self.blocks = self.blocks.saturating_add(blocks as u64);
         self.min_lba = core::cmp::min(self.min_lba, lba);
-        self.max_lba = core::cmp::max(
-            self.max_lba,
-            lba.saturating_add(blocks.saturating_sub(1)),
-        );
+        self.max_lba = core::cmp::max(self.max_lba, lba.saturating_add(blocks.saturating_sub(1)));
         self.commands % 256 == 0
     }
 
@@ -280,7 +277,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
                 SCSI_READ_CAPACITY_10 => {
                     let mut data = [0u8; 8];
-                    data[..4].copy_from_slice(&(TOTAL_SECTORS - 1).to_be_bytes());
+                    data[..4].copy_from_slice(&disk.last_lba().to_be_bytes());
                     data[4..].copy_from_slice(&(SECTOR_SIZE as u32).to_be_bytes());
                     let sent = self.send_limited(&data, cbw.transfer_len).await?;
                     residue = residue.saturating_sub(sent as u32);
@@ -289,7 +286,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 SCSI_READ_FORMAT_CAPACITIES => {
                     let mut data = [0u8; 12];
                     data[3] = 8; // one capacity descriptor
-                    data[4..8].copy_from_slice(&TOTAL_SECTORS.to_be_bytes());
+                    data[4..8].copy_from_slice(&(disk.last_lba() + 1).to_be_bytes());
                     data[8] = 0x02; // formatted media
                     let block_len = SECTOR_SIZE as u32;
                     data[9] = ((block_len >> 16) & 0xff) as u8;
@@ -314,7 +311,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         self.stats.log("progress");
                     }
 
-                    if lba >= TOTAL_SECTORS || blocks > TOTAL_SECTORS - lba {
+                    let total_sectors = disk.last_lba() + 1;
+                    if lba >= total_sectors || blocks > total_sectors - lba {
                         sense = (SENSE_ILLEGAL_REQUEST, ASC_LBA_OUT_OF_RANGE);
                         status = 1;
                     } else {
@@ -405,12 +403,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(())
     }
 
-    async fn send_csw(
-        &mut self,
-        tag: u32,
-        residue: u32,
-        status: u8,
-    ) -> Result<(), EndpointError> {
+    async fn send_csw(&mut self, tag: u32, residue: u32, status: u8) -> Result<(), EndpointError> {
         let mut csw = [0u8; 13];
         csw[0..4].copy_from_slice(&CSW_SIGNATURE.to_le_bytes());
         csw[4..8].copy_from_slice(&tag.to_le_bytes());

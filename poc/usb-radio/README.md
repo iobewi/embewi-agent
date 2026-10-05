@@ -2,9 +2,9 @@
 
 Standalone ESP32-S3 proof of concept for the Metronic 477144 children's player.
 
-The POC deliberately does **not** use IOBEWI. Its purpose is to discover the real
-hardware/USB behaviour first, then later provide a stable reference implementation for
-a separate IOBEWI porting exercise.
+The original POC discovered the real hardware/USB behaviour and remains the functional
+reference at golden commit `c118e0c`. This branch incrementally composes portable
+IOBEWI services while preserving product settings and the tested USB protocol.
 
 Target stream:
 
@@ -19,6 +19,9 @@ Make the Metronic see an ESP32-S3 as a USB mass-storage device containing a read
 stream.
 
 ## Stages
+
+The P1/P2/P3 hardware results below describe the historical golden POC. They remain
+the functional reference and do not qualify the current IOBEWI recomposition.
 
 ### P0 — virtual FAT16 model
 
@@ -295,5 +298,26 @@ forward-only.
 The reference remains golden `c118e0c`. The recomposed firmware uses portable
 `iobewi-rolling-stream` for retention, backpressure and rebased consumer positions.
 The product retains its 96 KiB capacity, 64 KiB prebuffer, 80 KiB maximum lead,
-far-ahead zero policy, critical-section lock, logs and HTTP reconnect loop. FAT and
-MSC remain golden implementations. Hardware replay is required for qualification.
+far-ahead zero policy, critical-section lock, logs and HTTP reconnect loop.
+
+FAT16 metadata generation and the 512-byte read-only block contract now come from
+`iobewi-fat16`, pinned to framework commit
+`516251f6245635bfecff0256ae096fb3a2049c67`. `usb-radio-core` is the product wrapper:
+it selects the golden 32 KiB clusters, 1 GiB file extent, 32 root entries, `RADIO.MP3`,
+`RADIOUSB` label and volume serial. The wrapper also implements the portable
+read-only block contract. The framework host tests compare all 261 golden metadata
+sectors byte-for-byte with an independently generated fixture. Product host
+tests retain the BPB, root directory, cluster chain and sector mapping expectations.
+
+The MSC class remains product code. Its capacity responses and READ(10) bounds now
+use the disk instance; commands, endpoint setup, five-second pending timeout and
+five-millisecond retry interval remain unchanged. This extraction introduces neither
+USB Audio nor decoding: MP3 bytes still pass directly to the player.
+
+Hardware replay on ESP32-S3 + Metronic is required before qualification of this
+recomposition, including audio beyond P2, unplug/replug and a correctly rebased session.
+
+The versioned `dist/` delivery remains the golden `c118e0c` image and was not regenerated
+during these extractions. For hardware replay, rebuild with `scripts/build-release.sh`
+or use a CI firmware artifact built from this branch's actual HEAD; flashing the old
+`dist/` image does not qualify the recomposition.

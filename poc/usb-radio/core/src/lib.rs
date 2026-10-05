@@ -2,7 +2,10 @@
 
 pub mod config_store;
 
-pub const SECTOR_SIZE: usize = 512;
+use iobewi_fat16::Fat16Config;
+pub use iobewi_fat16::{
+    FileSource, ReadOnlyBlockDevice, ReadStatus as FileReadStatus, SECTOR_SIZE,
+};
 
 // P3 geometry: FAT16 with 32 KiB clusters and a 1 GiB virtual RADIO.MP3.
 // The medium is virtual; only the rolling stream window exists in RAM.
@@ -10,8 +13,7 @@ pub const SECTORS_PER_CLUSTER: u32 = 64;
 pub const CLUSTER_SIZE: u32 = SECTORS_PER_CLUSTER * SECTOR_SIZE as u32;
 pub const FILE_CLUSTER_COUNT: u32 = 32_768;
 pub const FILE_START_CLUSTER: u16 = 2;
-pub const FILE_LAST_CLUSTER: u16 =
-    FILE_START_CLUSTER + FILE_CLUSTER_COUNT as u16 - 1;
+pub const FILE_LAST_CLUSTER: u16 = FILE_START_CLUSTER + FILE_CLUSTER_COUNT as u16 - 1;
 pub const FILE_SECTORS: u32 = FILE_CLUSTER_COUNT * SECTORS_PER_CLUSTER;
 pub const FILE_SIZE: u32 = FILE_CLUSTER_COUNT * CLUSTER_SIZE; // 1 GiB
 
@@ -20,22 +22,9 @@ pub const FAT_COUNT: u32 = 2;
 pub const FAT_SECTORS: u32 =
     (((FILE_CLUSTER_COUNT + 2) * 2) + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
 pub const ROOT_ENTRIES: u32 = 32;
-pub const ROOT_SECTORS: u32 =
-    (ROOT_ENTRIES * 32 + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
-pub const DATA_START_LBA: u32 =
-    RESERVED_SECTORS + FAT_COUNT * FAT_SECTORS + ROOT_SECTORS;
+pub const ROOT_SECTORS: u32 = (ROOT_ENTRIES * 32 + SECTOR_SIZE as u32 - 1) / SECTOR_SIZE as u32;
+pub const DATA_START_LBA: u32 = RESERVED_SECTORS + FAT_COUNT * FAT_SECTORS + ROOT_SECTORS;
 pub const TOTAL_SECTORS: u32 = DATA_START_LBA + FILE_SECTORS;
-
-const MEDIA_DESCRIPTOR: u8 = 0xF8;
-const VOLUME_LABEL: &[u8; 11] = b"RADIOUSB   ";
-const FILE_NAME: &[u8; 11] = b"RADIO   MP3";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FileReadStatus {
-    Ready,
-    Pending,
-    Expired,
-}
 
 /// A read starting more than this many bytes past the live edge of the stream is answered at
 /// once with zeroes instead of waiting. The Metronic reads just behind the live edge; hosts such
@@ -74,82 +63,56 @@ pub fn classify_stream_read(
     }
 }
 
-/// Supplies sectors from the virtual RADIO.MP3.
-///
-/// A source may use session callbacks to remap file offset 0 to a new position in an
-/// infinite backing stream whenever the USB host reconnects.
-pub trait FileSource {
-    fn begin_session(&mut self) {}
-    fn end_session(&mut self) {}
-
-    fn read_file_sector(
-        &mut self,
-        index: u32,
-        out: &mut [u8; SECTOR_SIZE],
-    ) -> FileReadStatus;
-}
-
+/// Product composition of the generic FAT16 service with the golden USB Radio identity.
 pub struct VirtualFat16<S> {
-    source: S,
+    disk: iobewi_fat16::VirtualFat16<S>,
 }
 
 impl<S: FileSource> VirtualFat16<S> {
-    pub const fn new(source: S) -> Self {
-        Self { source }
+    pub fn new(source: S) -> Self {
+        let config = Fat16Config {
+            sectors_per_cluster: SECTORS_PER_CLUSTER as u8,
+            file_cluster_count: FILE_CLUSTER_COUNT,
+            root_entries: ROOT_ENTRIES as u16,
+            file_name: *b"RADIO   MP3",
+            volume_label: *b"RADIOUSB   ",
+            volume_serial: 0x5241_4449,
+        };
+        Self {
+            disk: iobewi_fat16::VirtualFat16::new(source, config)
+                .expect("golden USB Radio FAT16 geometry must remain valid"),
+        }
     }
 
-    pub const fn last_lba(&self) -> u32 {
-        TOTAL_SECTORS - 1
+    pub fn last_lba(&self) -> u32 {
+        self.disk.last_lba()
     }
 
     pub fn begin_session(&mut self) {
-        self.source.begin_session();
+        self.disk.begin_session();
     }
 
     pub fn end_session(&mut self) {
-        self.source.end_session();
+        self.disk.end_session();
     }
 
-    pub fn read_sector(
-        &mut self,
-        lba: u32,
-        out: &mut [u8; SECTOR_SIZE],
-    ) -> FileReadStatus {
-        out.fill(0);
+    pub fn read_sector(&mut self, lba: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
+        self.disk.read_sector(lba, out)
+    }
+}
 
-        if lba >= TOTAL_SECTORS {
-            return FileReadStatus::Expired;
-        }
-
-        if lba == 0 {
-            write_boot_sector(out);
-            return FileReadStatus::Ready;
-        }
-
-        let fat1_start = RESERVED_SECTORS;
-        let fat2_start = fat1_start + FAT_SECTORS;
-        let root_start = fat2_start + FAT_SECTORS;
-
-        if (fat1_start..fat1_start + FAT_SECTORS).contains(&lba) {
-            write_fat_sector(lba - fat1_start, out);
-            return FileReadStatus::Ready;
-        }
-
-        if (fat2_start..fat2_start + FAT_SECTORS).contains(&lba) {
-            write_fat_sector(lba - fat2_start, out);
-            return FileReadStatus::Ready;
-        }
-
-        if (root_start..root_start + ROOT_SECTORS).contains(&lba) {
-            write_root_sector(lba - root_start, out);
-            return FileReadStatus::Ready;
-        }
-
-        if (DATA_START_LBA..DATA_START_LBA + FILE_SECTORS).contains(&lba) {
-            return self.source.read_file_sector(lba - DATA_START_LBA, out);
-        }
-
-        FileReadStatus::Ready
+impl<S: FileSource> ReadOnlyBlockDevice for VirtualFat16<S> {
+    fn last_lba(&self) -> u32 {
+        self.last_lba()
+    }
+    fn begin_session(&mut self) {
+        self.begin_session();
+    }
+    fn end_session(&mut self) {
+        self.end_session();
+    }
+    fn read_sector(&mut self, lba: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
+        self.read_sector(lba, out)
     }
 }
 
@@ -157,11 +120,7 @@ impl<S: FileSource> VirtualFat16<S> {
 pub struct DiagnosticSource;
 
 impl FileSource for DiagnosticSource {
-    fn read_file_sector(
-        &mut self,
-        index: u32,
-        out: &mut [u8; SECTOR_SIZE],
-    ) -> FileReadStatus {
+    fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> FileReadStatus {
         out.fill((index & 0xff) as u8);
 
         if index == 0 {
@@ -172,81 +131,6 @@ impl FileSource for DiagnosticSource {
         out[SECTOR_SIZE - 4..].copy_from_slice(&index.to_le_bytes());
         FileReadStatus::Ready
     }
-}
-
-fn write_boot_sector(out: &mut [u8; SECTOR_SIZE]) {
-    out[0..3].copy_from_slice(&[0xEB, 0x3C, 0x90]);
-    out[3..11].copy_from_slice(b"IOBEWI  ");
-
-    put_u16(out, 11, SECTOR_SIZE as u16);
-    out[13] = SECTORS_PER_CLUSTER as u8;
-    put_u16(out, 14, RESERVED_SECTORS as u16);
-    out[16] = FAT_COUNT as u8;
-    put_u16(out, 17, ROOT_ENTRIES as u16);
-    put_u16(out, 19, 0); // volume is too large for BPB_TotSec16
-    out[21] = MEDIA_DESCRIPTOR;
-    put_u16(out, 22, FAT_SECTORS as u16);
-    put_u16(out, 24, 63);
-    put_u16(out, 26, 255);
-    put_u32(out, 28, 0);
-    put_u32(out, 32, TOTAL_SECTORS);
-
-    out[36] = 0x80;
-    out[38] = 0x29;
-    put_u32(out, 39, 0x5241_4449); // "RADI"
-    out[43..54].copy_from_slice(VOLUME_LABEL);
-    out[54..62].copy_from_slice(b"FAT16   ");
-
-    out[510] = 0x55;
-    out[511] = 0xAA;
-}
-
-fn write_fat_sector(fat_sector: u32, out: &mut [u8; SECTOR_SIZE]) {
-    let first_entry = fat_sector * (SECTOR_SIZE as u32 / 2);
-
-    for slot in 0..(SECTOR_SIZE / 2) {
-        let entry = first_entry + slot as u32;
-        let value = if entry <= u16::MAX as u32 {
-            fat_value(entry as u16)
-        } else {
-            0
-        };
-        let offset = slot * 2;
-        out[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-    }
-}
-
-fn fat_value(cluster: u16) -> u16 {
-    match cluster {
-        0 => 0xFFF8,
-        1 => 0xFFFF,
-        c if c >= FILE_START_CLUSTER && c < FILE_LAST_CLUSTER => c + 1,
-        c if c == FILE_LAST_CLUSTER => 0xFFFF,
-        _ => 0x0000,
-    }
-}
-
-fn write_root_sector(index: u32, out: &mut [u8; SECTOR_SIZE]) {
-    if index != 0 {
-        return;
-    }
-
-    out[0..11].copy_from_slice(VOLUME_LABEL);
-    out[11] = 0x08;
-
-    let e = 32;
-    out[e..e + 11].copy_from_slice(FILE_NAME);
-    out[e + 11] = 0x21; // read-only + archive
-    put_u16(out, e + 26, FILE_START_CLUSTER);
-    put_u32(out, e + 28, FILE_SIZE);
-}
-
-fn put_u16(out: &mut [u8], offset: usize, value: u16) {
-    out[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-}
-
-fn put_u32(out: &mut [u8], offset: usize, value: u32) {
-    out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -270,7 +154,9 @@ mod tests {
     fn boot_sector_is_fat16_and_uses_32bit_total_sectors() {
         let mut disk = VirtualFat16::new(DiagnosticSource);
         let mut sector = [0u8; SECTOR_SIZE];
-        assert_eq!(disk.read_sector(0, &mut sector), FileReadStatus::Ready);
+        let block: &mut dyn ReadOnlyBlockDevice = &mut disk;
+        assert_eq!(block.last_lba(), TOTAL_SECTORS - 1);
+        assert_eq!(block.read_sector(0, &mut sector), FileReadStatus::Ready);
 
         assert_eq!(&sector[3..11], b"IOBEWI  ");
         assert_eq!(u16::from_le_bytes([sector[11], sector[12]]), 512);
@@ -292,7 +178,10 @@ mod tests {
         disk.read_sector(root_lba, &mut sector);
 
         assert_eq!(&sector[32..43], b"RADIO   MP3");
-        assert_eq!(u16::from_le_bytes([sector[58], sector[59]]), FILE_START_CLUSTER);
+        assert_eq!(
+            u16::from_le_bytes([sector[58], sector[59]]),
+            FILE_START_CLUSTER
+        );
         assert_eq!(
             u32::from_le_bytes([sector[60], sector[61], sector[62], sector[63]]),
             FILE_SIZE
@@ -332,22 +221,47 @@ mod tests {
         const RING: u64 = 96 * 1024;
         let live = 2 * 1024 * 1024;
         // Inside the window.
-        assert_eq!(classify_stream_read(live - 4096, live - 3584, live, RING), StreamWindow::Ready);
-        // Just past the live edge (the Metronic pacing case): wait.
-        assert_eq!(classify_stream_read(live, live + 512, live, RING), StreamWindow::Pending);
-        assert_eq!(classify_stream_read(live - 256, live + 256, live, RING), StreamWindow::Pending);
         assert_eq!(
-            classify_stream_read(live + FAR_AHEAD_BYTES, live + FAR_AHEAD_BYTES + 512, live, RING),
+            classify_stream_read(live - 4096, live - 3584, live, RING),
+            StreamWindow::Ready
+        );
+        // Just past the live edge (the Metronic pacing case): wait.
+        assert_eq!(
+            classify_stream_read(live, live + 512, live, RING),
+            StreamWindow::Pending
+        );
+        assert_eq!(
+            classify_stream_read(live - 256, live + 256, live, RING),
+            StreamWindow::Pending
+        );
+        assert_eq!(
+            classify_stream_read(
+                live + FAR_AHEAD_BYTES,
+                live + FAR_AHEAD_BYTES + 512,
+                live,
+                RING
+            ),
             StreamWindow::Pending
         );
         // Windows tail probe of the 1 GiB file: answered at once.
         let tail = FILE_SIZE as u64 - 512;
-        assert_eq!(classify_stream_read(tail, tail + 512, live, RING), StreamWindow::FarAhead);
         assert_eq!(
-            classify_stream_read(live + FAR_AHEAD_BYTES + 1, live + FAR_AHEAD_BYTES + 513, live, RING),
+            classify_stream_read(tail, tail + 512, live, RING),
+            StreamWindow::FarAhead
+        );
+        assert_eq!(
+            classify_stream_read(
+                live + FAR_AHEAD_BYTES + 1,
+                live + FAR_AHEAD_BYTES + 513,
+                live,
+                RING
+            ),
             StreamWindow::FarAhead
         );
         // Older than the retained window.
-        assert_eq!(classify_stream_read(0, 512, live, RING), StreamWindow::Expired);
+        assert_eq!(
+            classify_stream_read(0, 512, live, RING),
+            StreamWindow::Expired
+        );
     }
 }
