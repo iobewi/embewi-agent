@@ -8,13 +8,13 @@ mod msc;
 mod stream;
 mod wifi;
 
-use embassy_executor::Spawner;
 use core::cell::RefCell;
+use embassy_executor::Spawner;
 
 use embassy_futures::join::join;
-use embassy_net::{Runner, StackResources};
-use embassy_time::{Duration, Timer};
+use embassy_net::StackResources;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_time::{Duration, Timer};
 use embassy_usb::Builder;
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
@@ -22,7 +22,6 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
-    rng::Rng,
     timer::timg::TimerGroup,
     uart::{Config as UartConfig, Uart, UartRx, UartTx},
     usb::otg::{
@@ -30,7 +29,6 @@ use esp_hal::{
         embassy_usb_device::{Config as OtgConfig, Driver},
     },
 };
-use esp_radio::wifi::{ControllerConfig, Interface, WifiController};
 use esp_storage::FlashStorage;
 use flash_config::{FlashConfigBackend, SharedFlash};
 use iobewi_config_space::ConfigManager;
@@ -98,21 +96,11 @@ async fn main(spawner: Spawner) {
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
 
-    let wifi_interface = Interface::station();
-    let controller =
-        WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
-
-    let net_config = embassy_net::Config::dhcpv4(Default::default());
-    let rng = Rng::new();
-    let seed = (rng.random() as u64) << 32 | rng.random() as u64;
-    let (stack, runner) = embassy_net::new(
-        wifi_interface,
-        net_config,
+    let transport = wifi::EspWifiTransport::new(iobewi_esp_wifi::WifiManager::new(
+        peripherals.WIFI,
+        spawner,
         mk_static!(StackResources<3>, StackResources::<3>::new()),
-        seed,
-    );
-
-    spawner.spawn(net_task(runner).unwrap());
+    ));
 
     // Improv Serial shares UART0 (the USB-UART port) with the log output.
     let uart = Uart::new(peripherals.UART0, UartConfig::default())
@@ -121,15 +109,13 @@ async fn main(spawner: Spawner) {
         .with_tx(peripherals.GPIO43)
         .into_async();
     let (uart_rx, uart_tx) = uart.split();
-    let manager = WifiManager::new(wifi::EspWifiTransport::new(controller, stack), wifi_space);
+    let manager = WifiManager::new(transport, wifi_space);
     spawner.spawn(improv_task(uart_rx).unwrap());
-    spawner.spawn(wifi_task(manager, uart_tx).unwrap());
+    // Stack handles stay on this executor; they are not Send across cores.
+    let network_ready = mk_static!(wifi::NetworkReady, wifi::NetworkReady::new());
+    spawner.spawn(wifi_task(manager, uart_tx, network_ready).unwrap());
 
-    let usb = Usb::new_fs(
-        peripherals.USB_FS,
-        peripherals.GPIO20,
-        peripherals.GPIO19,
-    );
+    let usb = Usb::new_fs(peripherals.USB_FS, peripherals.GPIO20, peripherals.GPIO19);
 
     let mut ep_out_buffer = [0u8; 1024];
     let driver = Driver::new(usb, &mut ep_out_buffer, OtgConfig::default());
@@ -170,7 +156,10 @@ async fn main(spawner: Spawner) {
     let mut usb_device = builder.build();
     let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM));
 
-    let stream_fut = stream::run(stack, &STREAM);
+    let stream_fut = async {
+        let stack = network_ready.wait().await;
+        stream::run(stack, &STREAM).await
+    };
 
     let usb_fut = async {
         // The USB disk is only presented once the stream has delivered the prebuffer: a visible
@@ -209,11 +198,10 @@ async fn improv_task(rx: UartRx<'static, esp_hal::Async>) {
 }
 
 #[embassy_executor::task]
-async fn wifi_task(manager: wifi::Manager, tx: UartTx<'static, esp_hal::Async>) {
-    wifi::wifi_task(manager, tx).await
-}
-
-#[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, Interface>) {
-    runner.run().await
+async fn wifi_task(
+    manager: wifi::Manager,
+    tx: UartTx<'static, esp_hal::Async>,
+    network_ready: &'static wifi::NetworkReady,
+) {
+    wifi::wifi_task(manager, tx, network_ready).await
 }

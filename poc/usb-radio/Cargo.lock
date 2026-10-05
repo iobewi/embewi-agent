@@ -1528,7 +1528,21 @@ source = "git+https://github.com/iobewi/iobewi?rev=dc55d66c677b0e6d3ddade8bd8448
 [[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
+
+[[package]]
+name = "iobewi-esp-wifi"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "embassy-time",
+ "esp-hal",
+ "esp-radio",
+ "iobewi-wifi-core",
+ "log",
+]
 
 [[package]]
 name = "iobewi-fat16"
@@ -1557,12 +1571,12 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=e21885ac905f3ef31c3303076962aefd448f5d0d#e21885ac905f3ef31c3303076962aefd448f5d0d"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
@@ -2448,6 +2462,7 @@ dependencies = [
  "esp-storage",
  "improv-serial",
  "iobewi-config-space",
+ "iobewi-esp-wifi",
  "iobewi-rolling-stream",
  "iobewi-usb-msc",
  "iobewi-wifi-core",

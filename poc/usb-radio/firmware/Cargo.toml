@@ -20,12 +20,12 @@ embedded-storage = "0.3.1"
 reqwless = { version = "0.14.0", default-features = false }
 static_cell = "2.1.1"
 
-# Portable IOBEWI crates only (no esp-hal): the POC keeps its own esp-hal 1.2 stack, so
-# IOBEWI's ESP adapters (esp-hal =1.1.2) cannot be used; adapters live in this crate.
+# Wi-Fi mechanics use the framework ESP adapter; provisioning remains product composition.
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3" }
-iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
-iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
+iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "e21885ac905f3ef31c3303076962aefd448f5d0d" }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/iobewi", rev = "e21885ac905f3ef31c3303076962aefd448f5d0d", features = ["esp32s3"] }
+iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "e21885ac905f3ef31c3303076962aefd448f5d0d" }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "e21885ac905f3ef31c3303076962aefd448f5d0d" }
 
 esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
 esp-backtrace = { version = "0.20.0", features = [

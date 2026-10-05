@@ -163,11 +163,9 @@ cargo +esp run -p usb-radio-firmware --release \
 Wi-Fi is configured over the USB-UART port with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
-- `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
-  `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
-  used: they pin `esp-hal 1.1`, the POC is on `esp-hal 1.2`. The POC carries its own small
-  adapters (`firmware/src/wifi.rs`: esp-radio transport + UART; `firmware/src/flash_config.rs`:
-  config backend).
+- `improv-serial` and IOBEWI's portable manager/core/configuration contracts compose with
+  `iobewi-esp-wifi` for radio and stack mechanics. Product code retains UART provisioning,
+  credential persistence and the no-op for unchanged credentials while online.
 - Credentials are validated first (association + DHCP) and only then committed to two flash
   sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
   `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.
@@ -332,3 +330,22 @@ The versioned `dist/` delivery remains the golden `c118e0c` image and was not re
 during these extractions. For hardware replay, rebuild with `scripts/build-release.sh`
 or use a CI firmware artifact built from this branch's actual HEAD; flashing the old
 `dist/` image does not qualify the recomposition.
+
+### Wi-Fi platform reuse
+
+Radio initialization, scanning, association, DHCP and the Embassy runner now use
+`iobewi-esp-wifi` at `e21885ac905f3ef31c3303076962aefd448f5d0d`.
+The product wrapper preserves the golden unchanged-credentials no-op while online,
+so restarting maintenance after an Improv request does not deliberately bounce audio.
+The link observer publishes the initialized stack through a Signal; HTTP starts once
+it is ready and keeps that stable stack through reconnections. The Signal and stack handles
+remain on the same executor: Embassy stack handles are not Send and must not be moved
+to another core. USB still waits for prebuffer.
+
+This changes platform mechanics: initialization is lazy; scan selects strongest BSSID;
+link loss is observed through DHCP configuration loss rather than a separate radio event;
+reconfiguration waits for the old lease to disappear. Association and DHCP each have
+20-second timeouts, but disconnect/configuration-down waits do not. Initialization failure
+can consume the radio peripheral. The framework seeds the network stack from its clock.
+These differences require hardware replay, including Improv during audio and Wi-Fi loss
+and recovery. Credential flash storage remains the local golden adapter for now.
